@@ -10,6 +10,7 @@ function App() {
   const [incidents, setIncidents] = useState(initialIncidents);
   const [foundItems, setFoundItems] = useState(initialFoundItems);
   const [aiLogs, setAiLogs] = useState(initialAiLogs);
+  const [showDemoBanner, setShowDemoBanner] = useState(true);
 
   // Callback to append user reports to the active list
   const handleAddIncident = (newIncident) => {
@@ -86,6 +87,35 @@ function App() {
 
   return (
     <div className="flex min-h-screen flex-col bg-brand-dark">
+      {/* Demo Mode Notice Banner */}
+      {showDemoBanner && (
+        <div
+          style={{
+            background: 'linear-gradient(90deg, rgba(14,22,45,0.97) 0%, rgba(10,18,38,0.98) 100%)',
+            borderBottom: '1px solid rgba(251,191,36,0.2)',
+            borderTop: '2px solid rgba(251,191,36,0.5)'
+          }}
+          className="w-full px-4 py-2.5 flex items-center justify-between gap-3 z-50 relative"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-base shrink-0">⚠️</span>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              <span className="font-bold text-amber-400">Demo Mode — No API Keys or Backend.</span>
+              {' '}This is a hackathon prototype · All matching runs client-side in the browser.
+              {' '}<span className="text-amber-300 font-semibold">Use the ⚡ Demo Shortcuts on the Report Incident page</span>
+              {' '}to see the full AI matching flow instantly.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowDemoBanner(false)}
+            style={{ background: 'rgba(251,191,36,0.1)', borderColor: 'rgba(251,191,36,0.3)' }}
+            className="shrink-0 rounded-lg border px-3 py-1 text-[11px] font-bold text-amber-400 hover:bg-amber-400/20 transition-all cursor-pointer"
+          >
+            Got it ✕
+          </button>
+        </div>
+      )}
+
       {/* Sticky Header Nav */}
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
 

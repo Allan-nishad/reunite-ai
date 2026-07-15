@@ -1,7 +1,24 @@
-# REUNITE AI — Stadium Lost & Found Intelligence System
+<div align="center">
 
-> **Hackathon Submission** · FIFA World Cup 2030 Smart Stadium Challenge  
-> **Vertical:** Smart Stadium Operations — Lost & Found Incident Management
+<img src="public/banner.png" alt="REUNITE AI Banner" width="100%" style="border-radius:12px; margin-bottom: 16px;" />
+
+# REUNITE AI
+
+**🏟️ Stadium Lost & Found Intelligence System**  
+*FIFA World Cup 2030 · Smart Stadium Hackathon Submission*
+
+[![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react)](https://react.dev)
+[![Vite](https://img.shields.io/badge/Vite-8-646cff?style=flat-square&logo=vite)](https://vitejs.dev)
+[![No Backend](https://img.shields.io/badge/No%20API-Client%20Side%20Only-00e676?style=flat-square)](#)
+[![Demo Ready](https://img.shields.io/badge/Demo-One%20Click%20Ready-f59e0b?style=flat-square)](#-one-click-demo-for-judges)
+
+</div>
+
+---
+
+> ⚠️ **Demo Mode** — This is a hackathon prototype with **no API keys or backend required**.  
+> All AI matching logic runs **100% client-side in the browser**.  
+> Use the **⚡ Demo Shortcuts** on the Report Incident page to see the full flow instantly.
 
 ---
 
@@ -15,7 +32,8 @@ The platform is built for **stadium operations staff, stewards, and volunteers**
 
 ## ⚡ One-Click Demo (For Judges)
 
-On the **Report Incident** page, use the **Demo Shortcuts** panel to instantly trigger the full AI matching flow:
+> When you open the app, a **yellow notice banner** appears at the top explaining demo mode.  
+> Go to **Report Incident** and use the **⚡ Demo Shortcuts** panel:
 
 | Shortcut | What it shows |
 |---|---|
@@ -23,7 +41,7 @@ On the **Report Incident** page, use the **Demo Shortcuts** panel to instantly t
 | 👧 Lost Child (Maya) | Lost Child → 96% retroactive match with biometric timeline |
 | 👥 Separated Group | Separated Group → Custom match with verification checklist |
 
-**Flow:** Click shortcut → form auto-fills → auto-submits → open Operations Console → see the AI match.
+**Flow:** Click shortcut → form auto-fills → auto-submits → open **Operations Console** → see the live AI match result.
 
 ---
 
@@ -42,6 +60,7 @@ FIFA World Cup 2030 stadiums will host 60,000–90,000 fans per match across mul
 - On submission, the AI engine immediately searches existing **Found Item** logs for a retroactive match.
 
 ### 2. AI Matching Engine
+
 **Two matching paths:**
 
 #### A) Forward Match (Found → Lost)
@@ -51,14 +70,14 @@ When a volunteer logs a **found item** in the Operations Console:
   - `person` → boy, girl, man, woman, child, teenager…
   - `bag` → backpack, jacket, suitcase…
   - `document` → passport, wallet, ID card…
-- **Hard category walls** prevent cross-category false matches (a wallet cannot match a person incident).
+- **Hard category walls** prevent cross-category false matches (a wallet can never match a person incident).
 - If a match is found, a confidence score (91–96%) is displayed with explainable AI reasoning.
 
 #### B) Retroactive Match (Lost → Found)
 When a new incident is reported **after** a found item was already logged:
 - The system scans all `Awaiting Owner Report` found items.
 - Same 3-category classifier applies.
-- If matched, the incident is immediately flagged as `Matching` and the operator sees a retroactive timeline showing the sequence of events.
+- If matched, the incident is immediately flagged as `Matching` and the operator sees a retroactive timeline.
 
 ### 3. Decision Support Panel (MatchDetails)
 Once a match is confirmed, operators see:
@@ -103,10 +122,10 @@ Reporter (fan/steward)
 | Layer | Technology |
 |---|---|
 | Frontend | React 18 + Vite |
-| Styling | Tailwind CSS (utility classes) + Custom CSS variables |
+| Styling | Tailwind CSS + Custom CSS variables |
 | Icons | Lucide React |
 | AI Logic | Client-side semantic classifier (category-based keyword matching with word boundary regex) |
-| State | React hooks (`useState`, `useEffect`, `useCallback`) |
+| State | React hooks (`useState`, `useEffect`) |
 | Routing | Tab-based SPA navigation |
 | Build | Vite production build |
 
@@ -143,21 +162,20 @@ npm install
 
 # Start development server
 npm run dev
-
-# Production build
-npm run build
 ```
 
 Open `http://localhost:5173` in your browser.
+
+> No `.env` file needed. No API keys. No database. Just `npm install && npm run dev`.
 
 ---
 
 ## 💡 Assumptions Made
 
 1. **No backend / real AI model** — The semantic matching engine is implemented client-side using keyword regex classifiers. In production, this would connect to a vector embedding model (e.g., Gemini embeddings) and a real image recognition API.
-2. **Mock images** — The demo uses pre-generated placeholder images for backpacks, passports, jackets, and a child. In production, images would be uploaded by volunteers via mobile devices.
+2. **Mock images** — The demo uses pre-generated placeholder images. In production, images would be uploaded by volunteers via mobile devices.
 3. **Single stadium context** — The system assumes a single stadium context. A real deployment would scope incidents by stadium zone and match session.
-4. **Confidence scores** — Match confidence values (94%, 96%) are illustrative. Production scores would be computed by a multimodal AI model comparing image embeddings + textual description similarity.
+4. **Confidence scores** — Match confidence values (94%, 96%) are illustrative. Production scores would be computed by a multimodal AI model.
 5. **Volunteer notification** — "Notify Volunteer Desk" is simulated as auto-sent. In production, this would dispatch a push notification to the assigned steward's device.
 
 ---
@@ -173,9 +191,9 @@ Open `http://localhost:5173` in your browser.
 
 ## 🔒 Security Notes
 
-- No personally identifiable information (PII) is persisted — all state is in-memory and cleared on page refresh.
-- Image uploads are processed locally via `FileReader` — no images are transmitted to external servers in this demo.
-- In production, all incident data would be encrypted at rest and in transit, with role-based access control for stadium staff.
+- No personally identifiable information (PII) is persisted — all state is in-memory.
+- Image uploads are processed locally via `FileReader` — no images transmitted externally.
+- In production, all incident data would be encrypted at rest and in transit, with role-based access control.
 
 ---
 
@@ -185,10 +203,12 @@ Open `http://localhost:5173` in your browser.
 |---|---|
 | **Code Quality** | Component-based architecture, single-responsibility functions, clean state management |
 | **Security** | No PII persistence, local image processing, no external API calls |
-| **Efficiency** | O(n) linear scan matching, debounced state updates, memoized callbacks |
+| **Efficiency** | O(n) linear scan matching, debounced state updates |
 | **Testing** | One-click demo scenarios for all three core flows (bag / child / group) |
 | **Accessibility** | Responsive design, semantic HTML, ARIA labels, WCAG-compliant contrast |
 
 ---
 
-*Built for the FIFA World Cup 2030 Smart Stadium Hackathon.*
+<div align="center">
+<p><em>Built for the FIFA World Cup 2030 Smart Stadium Hackathon.</em></p>
+</div>
