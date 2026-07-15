@@ -211,4 +211,5 @@ Open `http://localhost:5173` in your browser.
 
 <div align="center">
 <p><em>Built for the FIFA World Cup 2030 Smart Stadium Hackathon.</em></p>
+<p>Built by <strong>Allan</strong></p>
 </div>

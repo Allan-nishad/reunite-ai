@@ -143,7 +143,11 @@ function App() {
       <footer className="w-full border-t border-white/5 bg-brand-dark py-6 text-center text-xs text-slate-500 font-medium">
         <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© 2026 REUNITE AI — AI-Powered Incident Resolution Platform. Mock Stadium Operations Suite.</p>
-          <div className="flex gap-4">
+          <div className="flex items-center gap-4">
+            <span className="text-slate-400 font-semibold">
+              Built by <span className="text-brand-green font-bold">Allan</span>
+            </span>
+            <span className="text-slate-700">|</span>
             <span className="hover:text-brand-green cursor-pointer transition-colors">Privacy Protocol</span>
             <span className="text-slate-700">|</span>
             <span className="hover:text-brand-green cursor-pointer transition-colors">System Diagnostics</span>
