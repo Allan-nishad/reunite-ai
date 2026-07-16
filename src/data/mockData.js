@@ -122,11 +122,11 @@ export const sampleMatchResult = {
   confidence: 94,
   foundImageUrl: "/mock_backpack.png",
   reasons: [
-    { text: "Same backpack brand and type (Nike Utility)", status: "match" },
-    { text: "White Nike logo detected on the center pouch", status: "match" },
-    { text: "Red custom keychain matches description", status: "match" },
-    { text: "Similar content profiles (notebook and laptop)", status: "match" },
-    { text: "Found location differs, which is expected because found items are often moved to volunteers or the Lost & Found desk.", status: "warning" }
+    { text: "✓ Same Brand: Nike Utility Backpack", status: "match" },
+    { text: "✓ Same Colour/Design: White Nike logo detected on the center pouch", status: "match" },
+    { text: "✓ Similar Description: Red custom keychain and contents match", status: "match" },
+    { text: "✓ Same Timestamp window: Item retrieved shortly after incident registered", status: "match" },
+    { text: "Found location differs (expected due to volunteer transit to Info Desk)", status: "warning" }
   ],
   timeline: [
     { time: "8:15 PM", event: "Lost Report Created (INC-302)" },

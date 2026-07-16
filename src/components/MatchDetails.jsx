@@ -168,7 +168,7 @@ export default function MatchDetails({ incident, matchData, onResolve, onBack })
                     </span>
                   )}
                   <span className={reason.status === 'match' ? 'text-slate-300' : 'text-amber-300 font-medium'}>
-                    {reason.text}
+                    {reason.text.replace(/^✓\s*/, '')}
                   </span>
                 </li>
               ))}

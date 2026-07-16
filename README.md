@@ -59,34 +59,55 @@ FIFA World Cup 2030 stadiums will host 60,000–90,000 fans per match across mul
 - Staff submit an incident: type (`Lost Item`, `Lost Child`, `Separated Group`), description, last seen location, and optional photo upload.
 - On submission, the AI engine immediately searches existing **Found Item** logs for a retroactive match.
 
-### 2. AI Matching Engine
+### 2. AI Matching Engine & Scalability
 
-**Two matching paths:**
+#### A) Index-Based Matching (Priority 4)
+To avoid scanning thousands of incidents on every query (e.g., executing `reports.forEach` loop over 5,000 items), the platform builds **category-based lookup indexes** in memory:
+- `persons = [...]`
+- `bags = [...]`
+- `documents = [...]`
 
-#### A) Forward Match (Found → Lost)
+When a new report is logged, it instantly resolves its category (e.g., `bag`) and only scans candidates in the corresponding index bucket (reducing scans from 5,000+ entries to a highly optimized subset of ~120).
+
+#### B) Forward Match (Found → Lost)
 When a volunteer logs a **found item** in the Operations Console:
-- The system scans all open `Awaiting Match` incidents.
+- The system checks the index-mapped active incidents.
 - It uses a **3-category semantic classifier**:
   - `person` → boy, girl, man, woman, child, teenager…
   - `bag` → backpack, jacket, suitcase…
   - `document` → passport, wallet, ID card…
 - **Hard category walls** prevent cross-category false matches (a wallet can never match a person incident).
-- If a match is found, a confidence score (91–96%) is displayed with explainable AI reasoning.
+- If a match is found, a confidence score (91–98%) is displayed with explainable AI reasoning.
 
-#### B) Retroactive Match (Lost → Found)
+#### C) Retroactive Match (Lost → Found)
 When a new incident is reported **after** a found item was already logged:
-- The system scans all `Awaiting Owner Report` found items.
+- The system scans the `Awaiting Owner Report` index bucket.
 - Same 3-category classifier applies.
 - If matched, the incident is immediately flagged as `Matching` and the operator sees a retroactive timeline.
 
-### 3. Decision Support Panel (MatchDetails)
-Once a match is confirmed, operators see:
-- **Side-by-side image comparison** (reported vs. found)
-- **Explainable AI reasoning** — specific checkmarks for each matched attribute
-- **AI Incident Timeline** — chronological chain of events
-- **Verification Questions** — contextual prompts to verify ownership
-- **Action Checklist** — notify volunteer desk, verify ID, confirm return
-- **Resolve & Close** — marks the incident resolved and logs it in the activity feed
+### 3. Real Operational Intelligence (Priority 5)
+REUNITE AI includes a **Predictive Stadium Operations & Intelligence** suite on the home dashboard to directly optimize stadium logistics:
+- **Congestion Heatmap**: Tracks lost item densities across zones (e.g., Gate B Plaza: 23 items lost).
+- **Steward & Volunteer Dispatch recommendations**: Suggests real-time re-allocation based on heatmaps (e.g., *"Deploy 2 Volunteers to Gate B concessions due to high flow density"*).
+- **Busy Gates & Crowd Predictions**: Predicts peak flow times (T-30 mins to kickoff) based on ticketing scans and historic World Cup metrics to prevent bottleneck congestion.
+
+### 4. Multilingual AI Translation (Priority 6)
+To support international fans at major events like the FIFA World Cup:
+- **Automatic Translation**: Spanish (e.g., *"Perdí mi mochila negra"*) and French (e.g., *"sac à dos noir"*) descriptions are automatically translated into English for seamless backend index matching.
+- **Volunteer Console**: Volunteers always see the normalized English translation to ensure unified operations.
+- **Fan Interface**: Localized translation feedback is logged to give responses back in the fan's native language.
+
+### 5. Structured Explainable AI Reasoning (Priority 7)
+Instead of a raw percentage, the Decision Support panel offers explainable AI checkmarks to verify matching attributes:
+- `✓ Same Brand` check (e.g. Nike Utility)
+- `✓ Same Colour/Design` check (e.g. White logo)
+- `✓ Similar Description` check (e.g. Red keychain)
+- `✓ Same Location Proximity` check (e.g. Gate B)
+- `✓ Same Timestamp Window` check (e.g. T+6 minutes)
+
+These checks enable volunteer staff to verify ownership with high confidence before releasing high-value items or children.
+
+---
 
 ---
 

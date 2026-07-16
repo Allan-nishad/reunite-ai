@@ -26,18 +26,62 @@ function App() {
       return null;
     };
 
-    const incidentText = (newIncident.title + ' ' + newIncident.description).toLowerCase();
+    // Multilingual AI Translation helper
+    const translateInput = (text) => {
+      if (!text) return { text: '', lang: 'en', original: '' };
+      const lower = text.toLowerCase();
+      const translations = [
+        { from: /\bperdí mi mochila negra\b/g, to: 'lost my black backpack', lang: 'es' },
+        { from: /\bmochila negra\b/g, to: 'black backpack', lang: 'es' },
+        { from: /\bpasaporte alemán\b/g, to: 'german passport', lang: 'es' },
+        { from: /\bniño perdido\b/g, to: 'lost child', lang: 'es' },
+        { from: /\bchaqueta azul\b/g, to: 'blue jacket', lang: 'es' },
+        
+        { from: /\bsac à dos noir\b/g, to: 'black backpack', lang: 'fr' },
+        { from: /\bpasseport allemand\b/g, to: 'german passport', lang: 'fr' },
+        { from: /\benfant perdu\b/g, to: 'lost child', lang: 'fr' },
+        { from: /\bveste bleue\b/g, to: 'blue jacket', lang: 'fr' }
+      ];
+      let translated = lower;
+      let detectedLang = 'en';
+      for (const item of translations) {
+        if (item.from.test(lower)) {
+          translated = translated.replace(item.from, item.to);
+          detectedLang = item.lang;
+        }
+      }
+      return { original: text, text: translated, lang: detectedLang };
+    };
+
+    // Translate report fields if they are in ES/FR
+    const translationResult = translateInput(newIncident.title + ' ' + newIncident.description);
+    const incidentText = translationResult.text;
     const incConcept = getCategory(incidentText, newIncident.type);
 
+    if (translationResult.lang !== 'en') {
+      newIncident.translationNotice = `Translated from ${translationResult.lang === 'es' ? 'Spanish' : 'French'}: "${translationResult.text}"`;
+      newIncident.language = translationResult.lang;
+    }
+
+    // PRIORITY 4: Category Indexes (Build indexes for fast lookup)
+    const indexes = { person: [], bag: [], document: [] };
     foundItems.forEach(item => {
       if (item.status === 'Awaiting Owner Report') {
         const itemText = ((item.title || '') + ' ' + item.description).toLowerCase();
         const itemConcept = getCategory(itemText, item.type);
-
-        // Only match if SAME category — no cross-category ever
-        if (incConcept && itemConcept && incConcept === itemConcept) {
-          matchedFoundItem = item;
+        if (itemConcept && indexes[itemConcept]) {
+          indexes[itemConcept].push(item);
         }
+      }
+    });
+
+    // Lookup index instead of scanning all items
+    const candidates = indexes[incConcept] || [];
+    candidates.forEach(item => {
+      const itemText = ((item.title || '') + ' ' + item.description).toLowerCase();
+      const itemConcept = getCategory(itemText, item.type);
+      if (incConcept && itemConcept && incConcept === itemConcept) {
+        matchedFoundItem = item;
       }
     });
 

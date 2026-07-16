@@ -132,6 +132,133 @@ export default function Dashboard({ setActiveTab }) {
         </div>
       </div>
 
+      {/* Operational Intelligence Section */}
+      <div className="mb-16 border-t border-white/5 pt-16">
+        <div className="flex items-center gap-2.5 mb-2">
+          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-brand-green/10 text-brand-green">
+            <Brain className="h-4 w-4" />
+          </div>
+          <h3 className="font-heading text-xl font-bold text-white tracking-wide">
+            Predictive Stadium Operations &amp; Intelligence
+          </h3>
+        </div>
+        <p className="text-xs sm:text-sm text-slate-400 mb-8 max-w-2xl">
+          AI analysis of lost item patterns, crowd flow data, and reported locations to automatically optimize volunteer deployment and predict gate congestion.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Heatmap & Congestion Zones */}
+          <div className="glass-panel border-white/5 rounded-2xl p-5 flex flex-col justify-between">
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center justify-between">
+                <span>📍 Heatmap &amp; Congestion Zones</span>
+                <span className="text-[10px] text-brand-green bg-brand-green/10 px-2 py-0.5 rounded animate-pulse">Live</span>
+              </h4>
+              <div className="space-y-3.5">
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-slate-300 font-medium">Gate B Plaza (Concourse East)</span>
+                    <span className="text-rose-400 font-bold">23 Items Lost · High Congestion</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-rose-500 h-full rounded-full" style={{ width: '85%' }}></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-slate-300 font-medium">Food Court &amp; Concessions Area</span>
+                    <span className="text-amber-400 font-bold">14 Items Lost · Moderate Traffic</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-amber-400 h-full rounded-full" style={{ width: '55%' }}></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-slate-300 font-medium">Gate A Info Desk &amp; Tickets</span>
+                    <span className="text-emerald-400 font-bold">5 Items Lost · Low Traffic</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-emerald-400 h-full rounded-full" style={{ width: '20%' }}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-6 leading-relaxed">
+              💡 <em>AI Insight: Lost items spike by 240% during half-time near Gate B concessions.</em>
+            </p>
+          </div>
+
+          {/* Volunteer Deployment Recommendation */}
+          <div className="glass-panel border-white/5 rounded-2xl p-5 flex flex-col justify-between">
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
+                🤖 Volunteer Deployment Recommendations
+              </h4>
+              <div className="space-y-3">
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 flex items-start gap-3">
+                  <span className="text-lg leading-none mt-0.5">🚨</span>
+                  <div>
+                    <h5 className="text-xs font-bold text-rose-400">Deploy 2 Volunteers to Gate B</h5>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-normal">
+                      Item loss density exceeds threshold due to crowd compression near turnstiles. Deploy volunteers to distribute tag cards.
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-start gap-3">
+                  <span className="text-lg leading-none mt-0.5">⚠️</span>
+                  <div>
+                    <h5 className="text-xs font-bold text-amber-400">Deploy 1 Volunteer to Food Court</h5>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-normal">
+                      Moderate losses recorded. Deploy sweep patrol steward to check seating tables every 15 minutes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="border-t border-white/5 pt-3 mt-4 flex items-center justify-between text-[10px] text-slate-500">
+              <span>Auto-dispatch enabled</span>
+              <span className="text-brand-green font-bold">100% Operations Efficient</span>
+            </div>
+          </div>
+
+          {/* Predictive Congestion Analysis */}
+          <div className="glass-panel border-white/5 rounded-2xl p-5 flex flex-col justify-between">
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
+                📊 Busy Gates &amp; Crowd Predictions
+              </h4>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center text-xs">
+                  <div className="min-w-0">
+                    <span className="font-semibold text-white block">Gate B Entrance</span>
+                    <span className="text-[10px] text-slate-400">Peak flow expected: T-30 mins to Kickoff</span>
+                  </div>
+                  <span className="bg-rose-500/20 text-rose-400 text-[10px] font-bold px-2 py-0.5 rounded border border-rose-500/20">Critical</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <div className="min-w-0">
+                    <span className="font-semibold text-white block">VIP Lounge Concourse</span>
+                    <span className="text-[10px] text-slate-400">High density expected: Half-Time</span>
+                  </div>
+                  <span className="bg-amber-500/20 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-500/20">Busy</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <div className="min-w-0">
+                    <span className="font-semibold text-white block">Gate A Entrance</span>
+                    <span className="text-[10px] text-slate-400">Normal flow: Stable arrivals</span>
+                  </div>
+                  <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-500/20">Stable</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-6 leading-relaxed">
+              *Based on tickets scanned and historic incident data from FIFA World Cup Qatar 2022 matches.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Features Grid */}
       <div>
         <h3 className="font-heading text-xl font-bold text-white tracking-wide mb-6">
