@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, AlertTriangle, AlertCircle, RefreshCw, CheckCircle2, UserCheck, Send, Clock, ListChecks, Check, ShieldAlert, CameraOff } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, RefreshCw, CheckCircle2, UserCheck, Clock, ListChecks, Check, ShieldAlert, CameraOff, Cpu, WifiOff } from 'lucide-react';
 
 
 export default function MatchDetails({ incident, matchData, onResolve, onBack }) {
@@ -43,21 +43,32 @@ export default function MatchDetails({ incident, matchData, onResolve, onBack })
   };
 
   return (
-    <div className="glass-panel border-brand-green/30 rounded-3xl p-5 sm:p-6 shadow-2xl relative animate-slide-up flex flex-col h-full overflow-y-auto">
+    <div className="glass-panel border-brand-green/30 rounded-3xl p-5 sm:p-6 shadow-2xl relative animate-slide-up flex flex-col h-full overflow-y-auto"
+      role="region" aria-label={`AI match result for ${incident.title}`}>
       {/* Top Header */}
       <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-4">
         <div>
-          <span className="text-[10px] uppercase font-bold tracking-widest text-brand-green bg-brand-green/10 px-2 py-0.5 rounded">
-            AI Match Result
-          </span>
-          <h3 className="font-heading text-lg font-bold text-white mt-1">
-            Potential Match Found
-          </h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] uppercase font-bold tracking-widest text-brand-green bg-brand-green/10 px-2 py-0.5 rounded">
+              AI Match Result
+            </span>
+            {/* AI Source Badge */}
+            {matchData?.aiSource === 'ai' || matchData?.aiSource === 'cached' ? (
+              <span className="text-[9px] uppercase font-bold tracking-widest text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 flex items-center gap-1">
+                <Cpu className="h-2.5 w-2.5" aria-hidden="true" /> AI-Generated
+              </span>
+            ) : (
+              <span className="text-[9px] uppercase font-bold tracking-widest text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/10 flex items-center gap-1">
+                <WifiOff className="h-2.5 w-2.5" aria-hidden="true" /> Local Engine
+              </span>
+            )}
+          </div>
+          <h3 className="font-heading text-lg font-bold text-white mt-1">Potential Match Found</h3>
         </div>
         <button
           onClick={onBack}
-          className="text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/5 cursor-pointer"
-        >
+          aria-label="Reset to found item form"
+          className="text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/5 cursor-pointer">
           Reset View
         </button>
       </div>
@@ -65,7 +76,9 @@ export default function MatchDetails({ incident, matchData, onResolve, onBack })
       {/* Hero match summary: Confidence and Basic Information */}
       <div className="flex flex-col sm:flex-row items-center gap-5 bg-brand-blue-light/35 border border-white/5 rounded-2xl p-4 mb-5">
         {/* Radial progress for confidence */}
-        <div className="relative flex items-center justify-center h-24 w-24 flex-shrink-0">
+        <div className="relative flex items-center justify-center h-24 w-24 flex-shrink-0"
+          role="meter" aria-label={`Match confidence: ${confidence} percent`}
+          aria-valuenow={confidence} aria-valuemin={0} aria-valuemax={100}>
           <svg className="w-20 h-20">
             {/* Background circle */}
             <circle

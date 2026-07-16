@@ -9,17 +9,17 @@
 
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)](https://react.dev)
 [![Vite](https://img.shields.io/badge/Vite-8-646cff?style=flat-square&logo=vite)](https://vitejs.dev)
-[![Tests](https://img.shields.io/badge/Tests-15%20passing-00e676?style=flat-square)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-46%20passing-00e676?style=flat-square)](#-testing)
 [![Demo Ready](https://img.shields.io/badge/Demo-One%20Click%20Ready-f59e0b?style=flat-square)](#-one-click-demo-for-judges)
-[![No API Key](https://img.shields.io/badge/No%20API%20Key-Required-6366f1?style=flat-square)](#-running-locally)
+[![AI](https://img.shields.io/badge/AI-Atomesus%20cipher-6366f1?style=flat-square)](#-running-locally)
 
 </div>
 
 ---
 
-> ⚠️ **Demo Mode** — This is a hackathon prototype. **No API keys, backend, or database required.**  
-> To ensure judges can run the project without configuration, the repository ships with a **deterministic local inference engine** that mirrors the production AI workflow.  
-> The production design uses **Gemini Embeddings + LLM reasoning** (see [Production Architecture](#-production-ai-architecture)).
+> ⚠️ **Demo Mode** — This is a hackathon prototype. **No API keys or backend required by default.**  
+> The app ships with a **deterministic local inference engine** that mirrors the production AI workflow.  
+> To enable real **Generative AI** reasoning, add your Atomesus API key to a `.env` file — see [Running Locally](#-running-locally).
 
 ---
 
@@ -225,22 +225,31 @@ Volunteer consoles always display the normalized English result to ensure operat
 
 ## 🧪 Testing
 
-The project ships with a full unit test suite using **Vitest 3** and **React Testing Library**:
+The project ships with a comprehensive test suite using **Vitest 3** and **React Testing Library**:
 
 ```bash
+# Run all tests
 npm run test
+
+# Run with coverage report (HTML output in coverage/)
+npm run test:coverage
 ```
 
 ```
- ✓ tests/classifier.test.js    (5 tests)  — category detection logic
- ✓ tests/matching.test.js      (3 tests)  — match + cross-category blocking
- ✓ tests/MatchDetails.test.jsx (2 tests)  — confidence rendering + resolve workflow
- ✓ tests/ReportForm.test.jsx   (3 tests)  — form submit + demo shortcut auto-fill
- ✓ tests/Console.test.jsx      (2 tests)  — found item logging + match trigger
+ ✓ tests/classifier.test.js    (12 tests) — getCategory + buildCategoryIndex
+ ✓ tests/matching.test.js       (7 tests) — match logic + cross-category blocking + multilingual
+ ✓ tests/translator.test.js    (14 tests) — ES/FR→EN translation + helpers + edge cases
+ ✓ tests/security.test.js      (25 tests) — sanitizeText, validateFile, validateDescription
+ ✓ tests/aiCache.test.js        (7 tests) — cache store/retrieve/eviction
+ ✓ tests/MatchDetails.test.jsx  (2 tests) — confidence rendering + resolve workflow
+ ✓ tests/ReportForm.test.jsx    (3 tests) — form submit + demo shortcut auto-fill
+ ✓ tests/Console.test.jsx       (2 tests) — found item logging + match trigger
 
- Test Files  5 passed (5)
-      Tests  15 passed (15)
+ Test Files  8 passed (8)
+      Tests  46 passed (46)
 ```
+
+> Tests now **import from shared utility modules** (`src/utils/`) — no duplicate code in test files.
 
 ---
 
@@ -249,26 +258,38 @@ npm run test
 ```
 src/
 ├── components/
-│   ├── Console.jsx       # Operations Console — found item logging + AI match simulation
-│   ├── Dashboard.jsx     # Home dashboard — incident stats, heatmap, operational intelligence
-│   ├── MatchDetails.jsx  # AI decision support panel — confidence, reasoning, timeline, actions
+│   ├── Console.jsx       # Operations Console — found item logging + real AI match
+│   ├── Dashboard.jsx     # Home dashboard — stats, heatmap, multilingual panel, test suite panel
+│   ├── MatchDetails.jsx  # AI decision support — confidence, reasoning, AI source badge
 │   ├── Navbar.jsx        # Navigation bar
-│   └── ReportForm.jsx    # Incident report form + one-click demo shortcuts
+│   └── ReportForm.jsx    # Incident report form + security validation + demo shortcuts
 ├── data/
-│   └── mockData.js       # Seed incidents, found items, AI logs, and sample match results
-├── App.jsx               # Root — global state, retroactive match engine, routing
+│   └── mockData.js       # Seed incidents, found items, AI logs, sample match results
+├── services/
+│   └── atomesus.js       # Real AI integration — Atomesus cipher model + graceful fallback
+├── utils/
+│   ├── classifier.js     # 3-category classifier + buildCategoryIndex (shared, no duplication)
+│   ├── translator.js     # ES/FR→EN multilingual normalization (shared)
+│   ├── security.js       # Input sanitization, file validation, XSS prevention (shared)
+│   ├── aiCache.js        # In-memory LRU cache for AI results (shared)
+│   └── matcher.js        # Core matching logic using shared classifier + translator
+├── App.jsx               # Root — global state, useMemo index, retroactive matching
 └── index.css             # Design system — tokens, glassmorphism, animations
 tests/
-├── classifier.test.js    # Category detection unit tests
-├── matching.test.js      # AI matching + cross-category blocking tests
-├── ReportForm.test.jsx   # Form component tests
-├── Console.test.jsx      # Operations console tests
-└── MatchDetails.test.jsx # Decision support panel tests
+├── classifier.test.js    # Category classifier + index builder (12 tests)
+├── matching.test.js      # AI matching + multilingual matching (7 tests)
+├── translator.test.js    # ES/FR translation + edge cases (14 tests)
+├── security.test.js      # XSS, file validation, sanitization (25 tests)
+├── aiCache.test.js       # Cache store/retrieve/evict (7 tests)
+├── ReportForm.test.jsx   # Form component tests (3 tests)
+├── Console.test.jsx      # Operations console tests (2 tests)
+└── MatchDetails.test.jsx # Decision support panel tests (2 tests)
 public/
 ├── banner.png            # README banner
 ├── mock_backpack.png     # Demo asset — Nike backpack
 ├── mock_passport.png     # Demo asset — German passport
 └── mock_girl.jpg         # Demo asset — Lost child (Maya)
+.env.example              # Environment variable template
 ```
 
 ---
@@ -284,11 +305,32 @@ npm run dev
 
 # Run tests
 npm run test
+
+# Run tests with HTML coverage report
+npm run test:coverage
 ```
 
 Open `http://localhost:5173` in your browser.
 
-> **No `.env` file needed. No API keys. No database. Just `npm install && npm run dev`.**
+> **No `.env` file needed for demo mode.** The local inference engine runs without any API keys.
+
+### Optional — Enable Real Generative AI
+
+To activate real AI reasoning via the **Atomesus cipher model**:
+
+```bash
+# Copy the template
+cp .env.example .env
+
+# Add your key (get one at https://api.atomesus.com → Developer → API Keys)
+VITE_ATOMESUS_API_KEY=atms_sk_YOUR_KEY_HERE
+```
+
+With a key set:
+- Match reasoning is generated by the **Atomesus `cipher` LLM** in real time
+- Results show an **`AI-Generated`** badge in the match panel
+- A cache prevents duplicate API calls for identical report pairs
+- On any API failure, the app silently falls back to local inference — **no errors, no crashes**
 
 ---
 
@@ -309,11 +351,14 @@ Open `http://localhost:5173` in your browser.
 
 ---
 
-## 🔒 Security Notes
+## 🔒 Security
 
-- No PII is persisted — all incident state lives in-memory only
-- Image uploads use the browser `FileReader` API — no images are transmitted to any external service
-- In production, all incident data would be encrypted at rest and in transit with role-based access control
+- **Input Sanitization** — All user text is stripped of HTML tags, `<script>` blocks, and `javascript:` protocols before processing
+- **File Validation** — Image uploads are restricted to JPEG/PNG/WebP/GIF, with a 5 MB size limit enforced client-side
+- **No PII Persistence** — All incident state lives in-memory only; nothing is sent to any server
+- **Environment Variables** — The API key is read from `VITE_ATOMESUS_API_KEY` and never hardcoded
+- **Filename Sanitization** — Uploaded filenames are stripped of path traversal sequences before any processing
+- **In production**, all incident data would be encrypted at rest and in transit with role-based access control
 
 ---
 

@@ -1,11 +1,14 @@
 import React from 'react';
 import { Activity, Shield, ShieldAlert, LayoutDashboard, FileSpreadsheet, PlusCircle } from 'lucide-react';
+import { locales } from '../utils/uiTranslations';
 
-export default function Navbar({ activeTab, setActiveTab }) {
+export default function Navbar({ activeTab, setActiveTab, lang, setLang }) {
+  const t = locales[lang] || locales.en;
+
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'report', label: 'Report Incident', icon: PlusCircle },
-    { id: 'console', label: 'Operations Console', icon: Activity },
+    { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
+    { id: 'report', label: t.reportIncident, icon: PlusCircle },
+    { id: 'console', label: t.opsConsole, icon: Activity },
   ];
 
   return (
@@ -25,7 +28,7 @@ export default function Navbar({ activeTab, setActiveTab }) {
               REUNITE <span className="text-brand-green">AI</span>
             </span>
             <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold leading-none">
-              Stadium Operations
+              {t.tagline}
             </div>
           </div>
         </div>
@@ -55,21 +58,46 @@ export default function Navbar({ activeTab, setActiveTab }) {
           })}
         </nav>
 
-        {/* Right Side: Operations Badge */}
-        <div className="hidden md:flex items-center gap-3">
-          <div className="flex flex-col text-right">
-            <span className="text-xs font-semibold text-slate-300">Stadia Hub B</span>
-            <span className="text-[10px] text-brand-green font-medium flex items-center justify-end gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-brand-green animate-pulse"></span>
-              Live Operational Mode
-            </span>
+        {/* Right Side: Language switch + Operations Badge */}
+        <div className="flex items-center gap-3">
+          {/* Language Selector flags */}
+          <div className="flex items-center gap-1.5 bg-white/5 rounded-lg border border-white/5 p-1" role="group" aria-label="Select UI Language">
+            {[
+              { code: 'en', flag: '🇬🇧', label: 'English' },
+              { code: 'es', flag: '🇪🇸', label: 'Español' },
+              { code: 'fr', flag: '🇫🇷', label: 'Français' },
+            ].map(l => (
+              <button
+                key={l.code}
+                onClick={() => setLang(l.code)}
+                title={l.label}
+                aria-label={`Switch UI language to ${l.label}`}
+                className={`w-7 h-7 rounded flex items-center justify-center text-sm transition-all cursor-pointer hover:bg-white/5 ${
+                  lang === l.code ? 'bg-brand-green/20 border border-brand-green/30 scale-105' : 'opacity-60 border border-transparent'
+                }`}
+              >
+                {l.flag}
+              </button>
+            ))}
           </div>
-          <div className="h-9 w-[1px] bg-white/10"></div>
-          <div className="flex h-9 items-center gap-2 rounded-lg bg-brand-blue border border-white/5 px-3">
-            <span className="text-xs font-bold text-slate-300 font-heading">L&F Desk #4</span>
+
+          <div className="hidden lg:flex items-center gap-3">
+            <div className="h-9 w-[1px] bg-white/10"></div>
+            <div className="flex flex-col text-right">
+              <span className="text-xs font-semibold text-slate-300">Stadia Hub B</span>
+              <span className="text-[10px] text-brand-green font-medium flex items-center justify-end gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-brand-green animate-pulse"></span>
+                Live Operational Mode
+              </span>
+            </div>
+            <div className="h-9 w-[1px] bg-white/10"></div>
+            <div className="flex h-9 items-center gap-2 rounded-lg bg-brand-blue border border-white/5 px-3">
+              <span className="text-xs font-bold text-slate-300 font-heading">L&F Desk #4</span>
+            </div>
           </div>
         </div>
       </div>
     </header>
   );
 }
+

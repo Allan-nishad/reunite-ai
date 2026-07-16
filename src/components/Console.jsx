@@ -1,691 +1,545 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Activity, ShieldAlert, CheckCircle2, Upload, MapPin, 
-  Terminal, Search, Filter, AlertTriangle, Compass,
-  FolderOpen, User, Check, Play, Loader2, Sparkles, ChevronRight, Clock
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Activity, ShieldAlert, CheckCircle2, Upload, MapPin,
+  AlertTriangle, Compass, FolderOpen, Check, Loader2,
+  Sparkles, Clock, Languages, Cpu, Wifi, WifiOff,
 } from 'lucide-react';
 import MatchDetails from './MatchDetails';
 import { sampleMatchResult } from '../data/mockData';
+import { getCategory, buildCategoryIndex } from '../utils/classifier';
+import { translateInput, getLangLabel, getLangFlag } from '../utils/translator';
+import { sanitizeText, validateFile, validateDescription, MAX_DESCRIPTION_LENGTH } from '../utils/security';
+import { getMatchAssessment } from '../services/atomesus';
 
-export default function Console({ 
-  incidents, 
-  setIncidents, 
-  foundItems, 
-  setFoundItems, 
-  aiLogs, 
-  setAiLogs 
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { locales } from '../utils/uiTranslations';
+
+export default function Console({
+  incidents, setIncidents,
+  foundItems, setFoundItems,
+  aiLogs, setAiLogs,
+  lang,
 }) {
-  const [filterType, setFilterType] = useState('All'); // All, Lost Item, Lost Child, Separated Group
+  const t = locales[lang] || locales.en;
+
+  const [filterType, setFilterType]         = useState('All');
   const [selectedIncidentId, setSelectedIncidentId] = useState(null);
-  const [showMatchResult, setShowMatchResult] = useState(false);
-  const [activeMatchData, setActiveMatchData] = useState(null);
+  const [showMatchResult, setShowMatchResult]       = useState(false);
+  const [activeMatchData, setActiveMatchData]       = useState(null);
   const [showUnclaimedResult, setShowUnclaimedResult] = useState(false);
   const [activeUnclaimedItem, setActiveUnclaimedItem] = useState(null);
 
-  // Found Form State
-  const [foundDesc, setFoundDesc] = useState('');
-  const [foundLoc, setFoundLoc] = useState('');
-  const [foundFile, setFoundFile] = useState(null);
+  // Found form state
+  const [foundDesc, setFoundDesc]       = useState('');
+  const [foundLoc, setFoundLoc]         = useState('');
+  const [foundFile, setFoundFile]       = useState(null);
   const [foundPreview, setFoundPreview] = useState(null);
+  const [fileError, setFileError]       = useState('');
+  const [descError, setDescError]       = useState('');
 
-  // Simulation State
+  // Language detection
+  const [detectedLang, setDetectedLang] = useState(null);
+
+  // Simulation / AI loading state
   const [isSimulating, setIsSimulating] = useState(false);
-  const [simStep, setSimStep] = useState(0);
-  const [simLogs, setSimLogs] = useState([]);
-  const simInterval = useRef(null);
+  const [simStep, setSimStep]           = useState(0);
+  const [simLogs, setSimLogs]           = useState([]);
+  const [aiSource, setAiSource]         = useState(null); // 'ai' | 'local' | 'cached'
 
-  // Ticker Auto-scroll / update
-  const [liveLogs, setLiveLogs] = useState(aiLogs);
-  const logContainerRef = useRef(null);
+  // Live logs
+  const [liveLogs, setLiveLogs]         = useState(aiLogs);
+  const logContainerRef                 = useRef(null);
 
-  // Add random dynamic AI activity log every 10 seconds to make dashboard feel "alive"
+  // ── Performance: build category indexes with useMemo ─────────────────────
+  const incidentIndex = useMemo(
+    () => buildCategoryIndex(incidents.filter(i => i.status !== 'Resolved')),
+    [incidents]
+  );
+
+  // ── Live AI activity ticker ───────────────────────────────────────────────
   useEffect(() => {
-    const mockLogsPool = [
-      { message: "🤖 Running visual scan on Gate A security cameras...", type: "process" },
-      { message: "🤖 Comparing active report INC-299 with Stadium CCTV logs...", type: "process" },
-      { message: "🤖 Target child (Yellow shirt) match probability 65% at Concourse 3", type: "info" },
-      { message: "✔ Device proximity check complete for Gate 4 BLE Beacons", type: "success" },
-      { message: "🤖 Scanning local found items catalog for matching wallets...", type: "process" },
-      { message: "✔ AI Match suggested: Red Wallet matched with INC-288 (91%)", type: "success" },
-      { message: "🤖 Incident alert routed to volunteer staff at Fan Zone B", type: "info" }
+    const pool = [
+      { message: '🤖 Running visual scan on Gate A security cameras...', type: 'process' },
+      { message: '🤖 Comparing active report INC-299 with Stadium CCTV logs...', type: 'process' },
+      { message: '🤖 Target child (Yellow shirt) match probability 65% at Concourse 3', type: 'info' },
+      { message: '✔ Device proximity check complete for Gate 4 BLE Beacons', type: 'success' },
+      { message: '🤖 Scanning local found items catalog for matching wallets...', type: 'process' },
+      { message: '✔ AI Match suggested: Red Wallet matched with INC-288 (91%)', type: 'success' },
+      { message: '🤖 Incident alert routed to volunteer staff at Fan Zone B', type: 'info' },
     ];
-
     const interval = setInterval(() => {
-      const randomLog = mockLogsPool[Math.floor(Math.random() * mockLogsPool.length)];
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      
-      setLiveLogs(prev => [
-        {
-          id: Date.now(),
-          message: randomLog.message,
-          time: timeStr,
-          type: randomLog.type
-        },
-        ...prev
-      ]);
+      const log   = pool[Math.floor(Math.random() * pool.length)];
+      const time  = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLiveLogs(prev => [{ id: Date.now(), message: log.message, time, type: log.type }, ...prev]);
     }, 12000);
-
     return () => clearInterval(interval);
   }, []);
 
-  // Sync back liveLogs when parent logs change
+  // Sync parent aiLogs into liveLogs
   useEffect(() => {
     setLiveLogs(prev => {
-      // Keep user-created logs first and unique
       const combined = [...aiLogs, ...prev];
-      const unique = combined.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-      return unique;
+      return combined.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
     });
   }, [aiLogs]);
 
-  // Statistics calculation
-  const stats = {
-    open: incidents.filter(i => i.status !== 'Resolved').length,
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  const stats = useMemo(() => ({
+    open:     incidents.filter(i => i.status !== 'Resolved').length,
     resolved: incidents.filter(i => i.status === 'Resolved').length,
     matching: incidents.filter(i => i.status === 'Matching').length,
-  };
+  }), [incidents]);
 
-  const filteredIncidents = incidents.filter(incident => {
-    if (filterType === 'All') return true;
-    return incident.type === filterType;
-  });
+  const filteredIncidents = useMemo(() =>
+    filterType === 'All' ? incidents : incidents.filter(i => i.type === filterType),
+    [incidents, filterType]
+  );
 
-  const handleImageChange = (e) => {
+  // ── File handling with security validation ────────────────────────────────
+  const handleImageChange = useCallback((e) => {
     const file = e.target.files[0];
-    if (file) {
-      setFoundFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFoundPreview(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+    if (!file) return;
 
-  const triggerMatchSimulation = (itemDescription, foundLocation) => {
+    const validation = validateFile(file);
+    if (!validation.valid) {
+      setFileError(validation.error);
+      setFoundFile(null);
+      setFoundPreview(null);
+      return;
+    }
+
+    setFileError('');
+    setFoundFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setFoundPreview(reader.result);
+    reader.readAsDataURL(file);
+  }, []);
+
+  // ── Live language detection ───────────────────────────────────────────────
+  const detectLang = useCallback((text) => {
+    if (!text || text.trim().length < 4) { setDetectedLang(null); return; }
+    const { lang, text: translated } = translateInput(text);
+    if (lang !== 'en') {
+      setDetectedLang({ lang, flag: getLangFlag(lang), label: getLangLabel(lang), translated });
+    } else {
+      setDetectedLang(null);
+    }
+  }, []);
+
+  const handleDescChange = useCallback((e) => {
+    const val = e.target.value;
+    setFoundDesc(val);
+    setDescError('');
+    detectLang(val);
+  }, [detectLang]);
+
+  // ── Default image helper ──────────────────────────────────────────────────
+  const getDefaultImage = useCallback((inc) => {
+    if (!inc) return '/mock_backpack.png';
+    const text = ((inc.title || '') + ' ' + (inc.description || '')).toLowerCase();
+    if (/girl|child|teenager|person|human|man|guy|maya/.test(text) || inc.type === 'Lost Child' || inc.type === 'Separated Group')
+      return '/mock_girl.jpg';
+    if (/passport|document|id|card|wallet/.test(text)) return '/mock_passport.png';
+    return '/mock_backpack.png';
+  }, []);
+
+  const getItemInfo = useCallback((item) => {
+    const t = ((item.title || '') + ' ' + (item.description || '')).toLowerCase();
+    if (/girl|boy|child|teenager|person|maya/.test(t)) return { tag: '👤 Found Person', colorClass: 'bg-teal-500/10 text-teal-400 border-teal-500/20' };
+    if (/group|fans|people|friends/.test(t))           return { tag: '👥 Found Group',  colorClass: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' };
+    return { tag: '📦 Found Item', colorClass: 'bg-blue-500/10 text-blue-400 border-blue-500/20' };
+  }, []);
+
+  // ── AI match simulation with real Atomesus call ───────────────────────────
+  const triggerMatchSimulation = useCallback(async (itemDescription, foundLocation) => {
+    // Validate before starting
+    const descValidation = validateDescription(itemDescription);
+    if (!descValidation.valid) {
+      setDescError(descValidation.error);
+      return;
+    }
+
     setIsSimulating(true);
     setSimStep(0);
     setSimLogs([]);
+    setAiSource(null);
 
-    const steps = [
-      { text: "Analyzing image upload & metadata...", time: 600 },
-      { text: "Extracting semantic attributes & visual tags...", time: 1300 },
-      { text: "Cross-referencing with active missing reports...", time: 2000 },
-      { text: "Calculating overall matching vector scores...", time: 2700 },
-      { text: "AI Recommendations Generated.", time: 3200 }
+    const animSteps = [
+      { text: 'Analyzing image upload & metadata...',            ms: 600  },
+      { text: 'Extracting semantic attributes & visual tags...', ms: 1300 },
+      { text: 'Cross-referencing active missing reports...',     ms: 2000 },
+      { text: 'Calculating vector similarity scores...',         ms: 2700 },
+      { text: 'Generating AI reasoning...',                      ms: 3200 },
     ];
 
-    steps.forEach((step, idx) => {
+    // Run animation steps
+    animSteps.forEach(({ text, ms }, idx) => {
       setTimeout(() => {
         setSimStep(idx + 1);
-        setSimLogs(prev => [...prev, step.text]);
-
-        // When the simulation finishes (last step)
-        if (idx === steps.length - 1) {
-          setTimeout(() => {
-            setIsSimulating(false);
-            
-            // Check keywords to determine which incident we match
-            const descLower = itemDescription.toLowerCase();
-            let matchedInc = null;
-            let customMatchData = null;
-
-            // 1. Explicit selection by user
-            if (selectedIncidentId) {
-              matchedInc = incidents.find(i => i.id === selectedIncidentId);
-            }
-            // 2. Auto-match using simple 3-category logic + indexing + translation
-            else {
-              // Simple category detection
-              const getCategory = (text) => {
-                const t = text.toLowerCase();
-                if (/\b(boy|girl|man|woman|child|person|human|teenager|kid|maya|son|daughter|guy|lady|fan|people|group)\b/.test(t)) return 'person';
-                if (/\b(backpack|bag|pack|rucksack|suitcase|briefcase|jacket|coat|puffer)\b/.test(t)) return 'bag';
-                if (/\b(passport|wallet|document|id card|pass|licence|license|certificate)\b/.test(t)) return 'document';
-                return null;
-              };
-
-              // Multilingual AI Translation helper
-              const translateInput = (text) => {
-                if (!text) return { text: '', lang: 'en' };
-                const lower = text.toLowerCase();
-                const translations = [
-                  { from: /\bperdí mi mochila negra\b/g, to: 'lost my black backpack', lang: 'es' },
-                  { from: /\bmochila negra\b/g, to: 'black backpack', lang: 'es' },
-                  { from: /\bpasaporte alemán\b/g, to: 'german passport', lang: 'es' },
-                  { from: /\bniño perdido\b/g, to: 'lost child', lang: 'es' },
-                  { from: /\bchaqueta azul\b/g, to: 'blue jacket', lang: 'es' },
-                  
-                  { from: /\bsac à dos noir\b/g, to: 'black backpack', lang: 'fr' },
-                  { from: /\bpasseport allemand\b/g, to: 'german passport', lang: 'fr' },
-                  { from: /\benfant perdu\b/g, to: 'lost child', lang: 'fr' },
-                  { from: /\bveste bleue\b/g, to: 'blue jacket', lang: 'fr' }
-                ];
-                let translated = lower;
-                let detectedLang = 'en';
-                for (const item of translations) {
-                  if (item.from.test(lower)) {
-                    translated = translated.replace(item.from, item.to);
-                    detectedLang = item.lang;
-                  }
-                }
-                return { text: translated, lang: detectedLang };
-              };
-
-              const translationResult = translateInput(descLower);
-              const foundTextTranslated = translationResult.text;
-              const foundCategory = getCategory(foundTextTranslated);
-
-              if (foundCategory) {
-                // PRIORITY 4: Index lookup for Incidents
-                const indexes = { person: [], bag: [], document: [] };
-                incidents.forEach(inc => {
-                  if (inc.status !== 'Resolved') {
-                    const incIsChild = inc.type === 'Lost Child' || inc.type === 'Separated Group';
-                    const incText = (inc.title + ' ' + inc.description).toLowerCase();
-                    const incCategory = getCategory(incText) || (incIsChild ? 'person' : null);
-                    if (incCategory && indexes[incCategory]) {
-                      indexes[incCategory].push(inc);
-                    }
-                  }
-                });
-
-                // Retrieve candidates from specific index
-                const candidates = indexes[foundCategory] || [];
-                matchedInc = candidates.find(inc => {
-                  const incIsChild = inc.type === 'Lost Child' || inc.type === 'Separated Group';
-                  const incText = (inc.title + ' ' + inc.description).toLowerCase();
-                  const incCategory = getCategory(incText) || (incIsChild ? 'person' : null);
-                  return incCategory === foundCategory;
-                });
-              }
-
-              // Preset fallback — only fires when same category, no match found above
-              if (!matchedInc) {
-                if (foundCategory === 'bag' && (descLower.includes('backpack') || descLower.includes('nike'))) {
-                  matchedInc = incidents.find(i => i.id === 'INC-302' && i.status !== 'Resolved');
-                } else if (foundCategory === 'bag' && (descLower.includes('jacket') || descLower.includes('coat'))) {
-                  matchedInc = incidents.find(i => i.id === 'INC-303' && i.status !== 'Resolved');
-                } else if (foundCategory === 'document') {
-                  matchedInc = incidents.find(i => i.id === 'INC-301' && i.status !== 'Resolved');
-                } else if (foundCategory === 'person' && (descLower.includes('maya') || descLower.includes('girl') || descLower.includes('teenager'))) {
-                  matchedInc = incidents.find(i => i.id === 'INC-299' && i.status !== 'Resolved');
-                }
-              }
-            }
-
-            if (matchedInc) {
-              // Check case types to apply appropriate explanations
-              const isBackpackCase = matchedInc.id === 'INC-302' || descLower.includes('backpack') || descLower.includes('nike');
-              const isPassportCase = matchedInc.id === 'INC-301' || descLower.includes('passport') || descLower.includes('german');
-              // Maya case: only if explicitly female keywords AND no male keywords
-              const isChildCase = matchedInc.id === 'INC-299' && (descLower.includes('maya') || descLower.includes('girl') || descLower.includes('teenager')) && !descLower.includes('boy') && !descLower.includes('man');
-
-              if (isBackpackCase) {
-                customMatchData = {
-                  ...sampleMatchResult,
-                  incidentId: matchedInc.id,
-                  foundImageUrl: foundPreview || "/mock_backpack.png",
-                  reasons: [
-                    { text: "Same backpack brand and type (Nike Utility)", status: "match" },
-                    { text: "White Nike logo detected on the center pouch", status: "match" },
-                    { text: "Red custom keychain matches description", status: "match" },
-                    { text: "Similar content profiles (notebook and laptop)", status: "match" },
-                    { text: `Found location (${foundLocation || 'VIP Desk'}) differs from last seen (${matchedInc.lastSeen}), which is expected because found items are often moved to volunteers or the Lost & Found desk.`, status: "warning" }
-                  ]
-                };
-              } else if (isPassportCase) {
-                customMatchData = {
-                  ...sampleMatchResult,
-                  incidentId: matchedInc.id,
-                  confidence: 98,
-                  foundImageUrl: foundPreview || "/mock_passport.png",
-                  reasons: [
-                    { text: "Direct document match: German Passport", status: "match" },
-                    { text: "Country match: Germany / Federal Republic of Germany", status: "match" },
-                    { text: `Visual name verification matches owner record`, status: "match" },
-                    { text: `Found location matches closely with VIP Lounge area.`, status: "match" }
-                  ],
-                  verificationQuestions: [
-                    "What is the date of birth on the passport?",
-                    "Can you confirm the passport number prefix?",
-                    "Is there any other card inside the leather holder?"
-                  ],
-                  timeline: [
-                    { time: matchedInc.reportedAt || "8:02 PM", event: `Lost Report Created (${matchedInc.id})` },
-                    { time: "8:25 PM", event: "Volunteer Uploaded Document" },
-                    { time: "8:25 PM", event: "Optical Character Recognition Complete" },
-                    { time: "8:26 PM", event: "Semantic Database Match Confirmed" },
-                    { time: "Pending", event: "Awaiting Passport Verification" }
-                  ]
-                };
-              } else if (isChildCase) {
-                customMatchData = {
-                  incidentId: matchedInc.id,
-                  foundItemId: `FND-${Math.floor(100 + Math.random() * 900)}`,
-                  confidence: 96,
-                  foundImageUrl: foundPreview || "/mock_girl.jpg",
-                  reasons: [
-                    { text: "Facial similarity matches reported photograph template", status: "match" },
-                    { text: "Shirt style matches (grey shirt with pink collar trim)", status: "match" },
-                    { text: "Physical features match (long dark wavy brown hair)", status: "match" },
-                    { text: `Found location matches Gate A vicinity where child was separated.`, status: "match" }
-                  ],
-                  timeline: [
-                    { time: matchedInc.reportedAt || "7:42 PM", event: `Lost Child Report Logged (${matchedInc.id})` },
-                    { time: "Just now", event: "Steward spotted child and logged photo" },
-                    { time: "Just now", event: "Biometric Facial Tag verification Complete" },
-                    { time: "Just now", event: "Proximity match confirmed (96% Confidence)" },
-                    { time: "Pending", event: "Awaiting Guardian identity verification" }
-                  ],
-                  verificationQuestions: [
-                    "What is the name of your guardian/parent?",
-                    "Do you know the guardian's contact number?",
-                    "Can you verify the child's birth date or ticket seat number?"
-                  ],
-                  actions: [
-                    { text: "Notify Security Hub and dispatch steward", status: "done" },
-                    { text: "Verify parent/guardian ID matches ticket database", status: "pending" },
-                    { text: "Reunite family and log check-out signature", status: "pending" }
-                  ],
-                  estimatedResolutionTime: "3 minutes"
-                };
-              } else {
-                // Generates dynamic match results for custom files & images uploaded by the user!
-                customMatchData = {
-                  incidentId: matchedInc.id,
-                  foundItemId: `FND-${Math.floor(100 + Math.random() * 900)}`,
-                  confidence: 91,
-                  foundImageUrl: foundPreview || getDefaultImage(matchedInc), // Use uploaded custom photo!
-                  reasons: [
-                    { text: `Image similarity profile match (detected shape overlap)`, status: "match" },
-                    { text: `Semantic match: description aligns with "${matchedInc.title}"`, status: "match" },
-                    { text: `Found location (${foundLocation || 'Info desk'}) matches proximity for last seen (${matchedInc.lastSeen})`, status: "match" },
-                    { text: `Timeline correlation: item retrieved shortly after incident was registered`, status: "match" }
-                  ],
-                  timeline: [
-                    { time: matchedInc.reportedAt || "Just now", event: `Lost Report Created (${matchedInc.id})` },
-                    { time: "Just now", event: "Volunteer Logged Discovery File" },
-                    { time: "Just now", event: "Semantic Similarity Score Calculated" },
-                    { time: "Pending", event: "Awaiting Hostess Sign-off" }
-                  ],
-                  verificationQuestions: [
-                    `Ask reporter to confirm details about: "${matchedInc.title}"`,
-                    `Can the reporter describe any markings, scratches, or content not mentioned in the description?`
-                  ],
-                  actions: [
-                    { text: "Notify Volunteer at Gate Info Desk", status: "done" },
-                    { text: "Verify Owner Identity and details", status: "pending" },
-                    { text: "Return Item and document signature", status: "pending" }
-                  ],
-                  estimatedResolutionTime: "3 minutes"
-                };
-              }
-            }
-
-            if (matchedInc) {
-              setSelectedIncidentId(matchedInc.id);
-              setActiveMatchData(customMatchData);
-              setShowMatchResult(true);
-
-              // Update the incident status in real-time to "Matching" and save image!
-              setIncidents(prev => 
-                prev.map(i => i.id === matchedInc.id ? { ...i, status: 'Matching', imageUrl: i.imageUrl || foundPreview } : i)
-              );
-
-              // Add logs
-              const now = new Date();
-              const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-              const newSuccessLog = {
-                id: Date.now(),
-                message: `✔ Match identified: ${matchedInc.title} with Found Item (Confidence: ${customMatchData.confidence}%)`,
-                time: timeStr,
-                type: 'success'
-              };
-              setAiLogs(prev => [newSuccessLog, ...prev]);
-            } else {
-              // No immediate matches: create a new status called Awaiting Owner Report
-              const now = new Date();
-              const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-              
-              // Generate title from first three words
-              const generatedTitle = itemDescription.split(/\s+/).slice(0, 3).join(" ") || "Unclaimed Item";
-
-              const newFoundItem = {
-                id: `FND-${Math.floor(109 + Math.random() * 900)}`,
-                title: generatedTitle,
-                description: itemDescription,
-                foundLocation: foundLocation || "Stadium Grounds",
-                timeFound: "Just now",
-                reportedAt: timeStr,
-                imageUrl: foundPreview,
-                status: "Awaiting Owner Report"
-              };
-              
-              setFoundItems(prev => [newFoundItem, ...prev]);
-              
-              const infoLog = {
-                id: Date.now(),
-                message: `🤖 Found item logged. Status: Awaiting Owner Report (${generatedTitle})`,
-                time: timeStr,
-                type: 'info'
-              };
-              setAiLogs(prev => [infoLog, ...prev]);
-              
-              setActiveUnclaimedItem(newFoundItem);
-              setShowUnclaimedResult(true);
-            }
-
-            // Reset found form fields
-            setFoundDesc('');
-            setFoundLoc('');
-            setFoundFile(null);
-            setFoundPreview(null);
-          }, 600);
-        }
-      }, step.time);
+        setSimLogs(prev => [...prev, text]);
+      }, ms);
     });
-  };
 
-  const handleFoundSubmit = (e) => {
+    // After animation: run real AI
+    setTimeout(async () => {
+      const sanitizedDesc = sanitizeText(itemDescription);
+      const { text: translatedDesc } = translateInput(sanitizedDesc);
+      const foundCategory = getCategory(translatedDesc, null);
+
+      // Find the best matching incident from index
+      let matchedInc = null;
+      if (selectedIncidentId) {
+        matchedInc = incidents.find(i => i.id === selectedIncidentId);
+      } else if (foundCategory) {
+        const candidates = incidentIndex[foundCategory] || [];
+        matchedInc = candidates.find(inc => {
+          const incText     = ((inc.title || '') + ' ' + (inc.description || '')).toLowerCase();
+          const incCategory = getCategory(incText, inc.type);
+          return incCategory === foundCategory;
+        });
+      }
+
+      // Keyword fallbacks for demo scenarios
+      const descLower = translatedDesc.toLowerCase();
+      if (!matchedInc) {
+        if (foundCategory === 'bag' && (descLower.includes('backpack') || descLower.includes('nike')))
+          matchedInc = incidents.find(i => i.id === 'INC-302' && i.status !== 'Resolved');
+        else if (foundCategory === 'bag' && (descLower.includes('jacket') || descLower.includes('coat')))
+          matchedInc = incidents.find(i => i.id === 'INC-303' && i.status !== 'Resolved');
+        else if (foundCategory === 'document')
+          matchedInc = incidents.find(i => i.id === 'INC-301' && i.status !== 'Resolved');
+        else if (foundCategory === 'person' && /maya|girl|teenager/.test(descLower))
+          matchedInc = incidents.find(i => i.id === 'INC-299' && i.status !== 'Resolved');
+      }
+
+      if (matchedInc) {
+        // ── Call Atomesus AI for real reasoning ──────────────────────────
+        const lostReport = {
+          category:    foundCategory,
+          title:       matchedInc.title,
+          description: matchedInc.description,
+          lastSeen:    matchedInc.lastSeen,
+        };
+        const foundReport = {
+          category:      foundCategory,
+          description:   sanitizedDesc,
+          foundLocation: foundLocation || 'Stadium Grounds',
+        };
+
+        const assessment = await getMatchAssessment(lostReport, foundReport);
+        setAiSource(assessment.source);
+
+        // Build reasons from AI assessment
+        const aiReasons = assessment.reasoning.map(r => ({
+          text: r.replace(/^✓\s*/, ''),
+          status: 'match',
+        }));
+
+        // Append location warning if locations differ
+        if (foundLocation && matchedInc.lastSeen && !descLower.includes(matchedInc.lastSeen.toLowerCase())) {
+          aiReasons.push({
+            text:   `Found location (${foundLocation}) differs from last seen (${matchedInc.lastSeen}) — expected as items are often moved to info desks`,
+            status: 'warning',
+          });
+        }
+
+        // Build custom match data
+        const customMatchData = {
+          ...sampleMatchResult,
+          incidentId:   matchedInc.id,
+          confidence:   assessment.confidence || sampleMatchResult.confidence,
+          foundImageUrl: foundPreview || getDefaultImage(matchedInc),
+          reasons:      aiReasons.length ? aiReasons : sampleMatchResult.reasons,
+          aiSource:     assessment.source,
+          timeline:     sampleMatchResult.timeline,
+          verificationQuestions: assessment.verificationQuestions || sampleMatchResult.verificationQuestions,
+          actions:      sampleMatchResult.actions,
+          estimatedResolutionTime: sampleMatchResult.estimatedResolutionTime,
+        };
+
+        setIsSimulating(false);
+        setSelectedIncidentId(matchedInc.id);
+        setActiveMatchData(customMatchData);
+        setShowMatchResult(true);
+
+        setIncidents(prev =>
+          prev.map(i => i.id === matchedInc.id ? { ...i, status: 'Matching', imageUrl: i.imageUrl || foundPreview } : i)
+        );
+
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setAiLogs(prev => [{
+          id:      Date.now(),
+          message: `✔ ${assessment.source === 'ai' ? '[AI]' : '[Local]'} Match: ${matchedInc.title} (${assessment.confidence}% confidence)`,
+          time:    timeStr,
+          type:    'success',
+        }, ...prev]);
+
+      } else {
+        setIsSimulating(false);
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const generatedTitle = sanitizedDesc.split(/\s+/).slice(0, 3).join(' ') || 'Unclaimed Item';
+        const newFoundItem = {
+          id:           `FND-${Math.floor(109 + Math.random() * 900)}`,
+          title:        generatedTitle,
+          description:  sanitizedDesc,
+          foundLocation: foundLocation || 'Stadium Grounds',
+          timeFound:    'Just now',
+          reportedAt:   timeStr,
+          imageUrl:     foundPreview,
+          status:       'Awaiting Owner Report',
+        };
+
+        setFoundItems(prev => [newFoundItem, ...prev]);
+        setAiLogs(prev => [{
+          id:      Date.now(),
+          message: `🤖 Found item logged. Status: Awaiting Owner Report (${generatedTitle})`,
+          time:    timeStr,
+          type:    'info',
+        }, ...prev]);
+        setActiveUnclaimedItem(newFoundItem);
+        setShowUnclaimedResult(true);
+      }
+
+      // Reset form
+      setFoundDesc('');
+      setFoundLoc('');
+      setFoundFile(null);
+      setFoundPreview(null);
+      setDetectedLang(null);
+
+    }, 3800);
+  }, [incidents, incidentIndex, selectedIncidentId, foundPreview, getDefaultImage]);
+
+  const handleFoundSubmit = useCallback((e) => {
     e.preventDefault();
-    if (!foundDesc) return;
+    const validation = validateDescription(foundDesc);
+    if (!validation.valid) { setDescError(validation.error); return; }
     triggerMatchSimulation(foundDesc, foundLoc);
-  };
+  }, [foundDesc, foundLoc, triggerMatchSimulation]);
 
-  const handleResolveIncident = (id) => {
-    setIncidents(prev => 
-      prev.map(inc => inc.id === id ? { ...inc, status: 'Resolved' } : inc)
-    );
+  const handleResolveIncident = useCallback((id) => {
+    setIncidents(prev => prev.map(inc => inc.id === id ? { ...inc, status: 'Resolved' } : inc));
     setShowMatchResult(false);
     setSelectedIncidentId(null);
     setActiveMatchData(null);
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setAiLogs(prev => [{ id: Date.now(), message: `🟢 Incident ${id} resolved and closed.`, time: timeStr, type: 'success' }, ...prev]);
+  }, []);
 
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const log = {
-      id: Date.now(),
-      message: `🟢 Incident ${id} resolved and closed.`,
-      time: timeStr,
-      type: 'success'
-    };
-    setAiLogs(prev => [log, ...prev]);
-  };
-
-  const handleIncidentSelect = (incident) => {
+  const handleIncidentSelect = useCallback((incident) => {
     setSelectedIncidentId(incident.id);
-    if (incident.status === 'Matching') {
-      const descLower = incident.title.toLowerCase() + " " + incident.description.toLowerCase();
-      let matchedData = null;
+    if (incident.status !== 'Matching') { setShowMatchResult(false); return; }
 
-         if (incident.retroactiveMatchId) {
-        const matchingFoundItem = foundItems.find(f => f.id === incident.retroactiveMatchId);
-        matchedData = {
-          incidentId: incident.id,
-          foundItemId: incident.retroactiveMatchId,
-          confidence: 94,
-          foundImageUrl: (foundItems.find(f => f.id === incident.retroactiveMatchId)?.imageUrl) || incident.imageUrl || getDefaultImage(incident),
-          reasons: [
-            { text: `✓ Same Category check: "${matchingFoundItem?.title || 'item'}" aligns with "${incident.title}"`, status: "match" },
-            { text: `✓ Similar Description: "${matchingFoundItem?.description}"`, status: "match" },
-            { text: `✓ Same Location proximity: (${matchingFoundItem?.foundLocation || 'Stadium Grounds'}) matches last seen (${incident.lastSeen})`, status: "match" },
-            { text: `✓ Same Timestamp window: matched with archived discovered catalog`, status: "match" }
-          ],
-          timeline: [
-            { time: matchingFoundItem?.timeFound || "Just now", event: `Discovered & Logged as Unclaimed (${incident.retroactiveMatchId})` },
-            { time: "Pending", event: "No matching report in system, stored to database" },
-            { time: incident.reportedAt || "Just now", event: `Missing Incident Reported (${incident.id})` },
-            { time: "Just now", event: `AI scanned unclaimed files & retroactively linked to #${incident.retroactiveMatchId}` },
-            { time: "Pending", event: "Awaiting Operator verification" }
-          ],
-          verificationQuestions: [
-            `Verify the reporter details for "${incident.title}" against the logged found item "${matchingFoundItem?.title}".`,
-            `Ask if they can confirm details matching: "${matchingFoundItem?.description}".`
-          ],
-          actions: [
-            { text: `Notify Volunteer who turned in unclaimed #${incident.retroactiveMatchId}`, status: "done" },
-            { text: "Verify matching credentials and ticket registration", status: "pending" },
-            { text: "Reunite child/party and log safety checklist", status: "pending" }
-          ],
-          estimatedResolutionTime: "3 minutes"
-        };
-      } else if (descLower.includes('backpack') || descLower.includes('nike')) {
-        matchedData = sampleMatchResult;
-      } else if (descLower.includes('passport') || descLower.includes('german')) {
-        matchedData = {
-          ...sampleMatchResult,
-          incidentId: "INC-301",
-          confidence: 98,
-          reasons: [
-            { text: "✓ Same Brand / Document: German Passport", status: "match" },
-            { text: "✓ Same Country match: Germany / Federal Republic of Germany", status: "match" },
-            { text: "✓ Visual Name check confirms owner record ('Klaus Schmidt')", status: "match" },
-            { text: `✓ Same Location proximity: VIP Lounge area matching lost location.`, status: "match" }
-          ],
-          verificationQuestions: [
-            "What is the date of birth on the passport?",
-            "Can you confirm the passport number prefix?",
-            "Is there any other card inside the leather holder?"
-          ],
-          timeline: [
-            { time: "8:02 PM", event: "Lost Report Created (INC-301)" },
-            { time: "8:25 PM", event: "Volunteer Uploaded Document (FND-102)" },
-            { time: "8:25 PM", event: "Optical Character Recognition Complete" },
-            { time: "8:26 PM", event: "Semantic Database Match Confirmed" },
-            { time: "Pending", event: "Awaiting Passport Verification" }
-          ]
-        };
-      } else if (descLower.includes('maya') || descLower.includes('girl') || descLower.includes('teenager')) {
-        matchedData = {
-          incidentId: incident.id,
-          foundItemId: `FND-${Math.floor(100 + Math.random() * 900)}`,
-          confidence: 96,
-          foundImageUrl: incident.imageUrl || "/mock_girl.jpg",
-          reasons: [
-            { text: "✓ Visual Biometric check: matches reported template photo", status: "match" },
-            { text: "✓ Same Clothing check: Grey shirt with pink collar trim matches", status: "match" },
-            { text: "✓ Similar Description: Long dark wavy brown hair matches", status: "match" },
-            { text: `✓ Same Location proximity: Gate A vicinity where child was separated.`, status: "match" }
-          ],
-          timeline: [
-            { time: incident.reportedAt || "7:42 PM", event: `Lost Child Report Logged (${incident.id})` },
-            { time: "Just now", event: "Steward spotted child and logged photo" },
-            { time: "Just now", event: "Biometric Facial Tag verification Complete" },
-            { time: "Just now", event: "Proximity match confirmed (96% Confidence)" },
-            { time: "Pending", event: "Awaiting Guardian identity verification" }
-          ],
-          verificationQuestions: [
-            "What is the name of your guardian/parent?",
-            "Do you know the guardian's contact number?",
-            "Can you verify the child's birth date or ticket seat number?"
-          ],
-          actions: [
-            { text: "Notify Security Hub and dispatch steward", status: "done" },
-            { text: "Verify parent/guardian ID matches ticket database", status: "pending" },
-            { text: "Reunite family and log check-out signature", status: "pending" }
-          ],
-          estimatedResolutionTime: "3 minutes"
-        };
-      }
- 
-      if (!matchedData) {
-        // Fallback for custom incidents that are already in "Matching" status
-        matchedData = {
-          incidentId: incident.id,
-          foundItemId: `FND-${Math.floor(100 + Math.random() * 900)}`,
-          confidence: 91,
-          foundImageUrl: incident.imageUrl || getDefaultImage(incident),
-          reasons: [
-            { text: `✓ Same Category check: item description aligns with "${incident.title}"`, status: "match" },
-            { text: `✓ Similar Description: visual shape overlap similarity confirmed`, status: "match" },
-            { text: `✓ Same Location proximity: found near last seen (${incident.lastSeen || 'Stadium Plaza'})`, status: "match" },
-            { text: `✓ Same Timestamp window: matching tags successfully parsed`, status: "match" }
-          ],
-          timeline: [
-            { time: incident.reportedAt || "Just now", event: `Lost Incident Registered (${incident.id})` },
-            { time: "10 mins ago", event: "Volunteer logged matching discovered description" },
-            { time: "5 mins ago", event: "AI verified similarity profiles" },
-            { time: "Pending", event: "Awaiting Operator return confirmation" }
-          ],
-          verificationQuestions: [
-            `Ask reporter to confirm details about: "${incident.title}"`,
-            `Can the reporter describe any markings, scratches, or content not mentioned in the description?`
-          ],
-          actions: [
-            { text: "Notify Volunteer at Gate Info Desk", status: "done" },
-            { text: "Verify Owner Identity and details", status: "pending" },
-            { text: "Return Item and document signature", status: "pending" }
-          ],
-          estimatedResolutionTime: "3 minutes"
-        };
-      }
+    const descLower = (incident.title + ' ' + incident.description).toLowerCase();
+    let matchedData = null;
 
-      if (matchedData) {
-        setActiveMatchData(matchedData);
-        setShowMatchResult(true);
-      } else {
-        setShowMatchResult(false);
-      }
+    if (incident.retroactiveMatchId) {
+      const mfi = foundItems.find(f => f.id === incident.retroactiveMatchId);
+      matchedData = {
+        incidentId:   incident.id,
+        foundItemId:  incident.retroactiveMatchId,
+        confidence:   94,
+        foundImageUrl: mfi?.imageUrl || incident.imageUrl || getDefaultImage(incident),
+        aiSource:     'local',
+        reasons: [
+          { text: `Same Category: "${mfi?.title || 'item'}" aligns with "${incident.title}"`, status: 'match' },
+          { text: `Similar Description: "${mfi?.description}"`, status: 'match' },
+          { text: `Location proximity: ${mfi?.foundLocation || 'Stadium'} → ${incident.lastSeen}`, status: 'match' },
+          { text: `Timestamp match: linked via retroactive catalog scan`, status: 'match' },
+        ],
+        timeline: [
+          { time: mfi?.timeFound || 'Earlier', event: `Discovered & Logged Unclaimed (${incident.retroactiveMatchId})` },
+          { time: 'Pending', event: 'No matching report — stored to index' },
+          { time: incident.reportedAt || 'Just now', event: `Missing Report Logged (${incident.id})` },
+          { time: 'Just now', event: `AI retroactively linked to #${incident.retroactiveMatchId}` },
+          { time: 'Pending', event: 'Awaiting operator verification' },
+        ],
+        verificationQuestions: [
+          `Confirm details for "${incident.title}" against logged found item "${mfi?.title}".`,
+          `Ask if the reporter can confirm: "${mfi?.description}".`,
+        ],
+        actions: [
+          { text: `Notify volunteer who turned in #${incident.retroactiveMatchId}`, status: 'done' },
+          { text: 'Verify credentials and ticket registration', status: 'pending' },
+          { text: 'Reunite and log safety checklist', status: 'pending' },
+        ],
+        estimatedResolutionTime: '3 minutes',
+      };
+    } else if (descLower.includes('backpack') || descLower.includes('nike')) {
+      matchedData = sampleMatchResult;
+    } else if (descLower.includes('passport') || descLower.includes('german')) {
+      matchedData = {
+        ...sampleMatchResult, incidentId: 'INC-301', confidence: 98, aiSource: 'local',
+        reasons: [
+          { text: 'Same Document: German Passport', status: 'match' },
+          { text: 'Country match: Germany / Federal Republic of Germany', status: 'match' },
+          { text: "Name verification matches owner record ('Klaus Schmidt')", status: 'match' },
+          { text: 'Location proximity: VIP Lounge area', status: 'match' },
+        ],
+      };
+    } else if (/maya|girl|teenager/.test(descLower)) {
+      matchedData = {
+        incidentId:   incident.id,
+        foundItemId:  `FND-${Math.floor(100 + Math.random() * 900)}`,
+        confidence:   96,
+        aiSource:     'local',
+        foundImageUrl: incident.imageUrl || '/mock_girl.jpg',
+        reasons: [
+          { text: 'Biometric check: matches reported photograph template', status: 'match' },
+          { text: 'Clothing match: grey shirt with pink collar trim', status: 'match' },
+          { text: 'Physical features: long dark wavy brown hair', status: 'match' },
+          { text: 'Location proximity: Gate A vicinity', status: 'match' },
+        ],
+        timeline: [
+          { time: incident.reportedAt || '7:42 PM', event: `Lost Child Report Logged (${incident.id})` },
+          { time: 'Just now', event: 'Steward spotted child and logged photo' },
+          { time: 'Just now', event: 'Biometric verification complete' },
+          { time: 'Pending', event: 'Awaiting guardian identity verification' },
+        ],
+        verificationQuestions: [
+          "What is the name of the guardian/parent?",
+          "Do you know the guardian's contact number?",
+          "Can you verify the child's birth date or ticket seat number?",
+        ],
+        actions: [
+          { text: 'Notify Security Hub and dispatch steward', status: 'done' },
+          { text: 'Verify parent/guardian ID against ticket database', status: 'pending' },
+          { text: 'Reunite family and log check-out signature', status: 'pending' },
+        ],
+        estimatedResolutionTime: '3 minutes',
+      };
     } else {
-      setShowMatchResult(false);
+      matchedData = {
+        incidentId:   incident.id,
+        foundItemId:  `FND-${Math.floor(100 + Math.random() * 900)}`,
+        confidence:   91,
+        aiSource:     'local',
+        foundImageUrl: incident.imageUrl || getDefaultImage(incident),
+        reasons: [
+          { text: `Category confirmed: description aligns with "${incident.title}"`, status: 'match' },
+          { text: 'Visual shape overlap similarity confirmed', status: 'match' },
+          { text: `Location proximity: near ${incident.lastSeen || 'Stadium Plaza'}`, status: 'match' },
+          { text: 'Timestamp window: matching tags parsed', status: 'match' },
+        ],
+        timeline: [
+          { time: incident.reportedAt || 'Just now', event: `Incident Registered (${incident.id})` },
+          { time: '10 mins ago', event: 'Volunteer logged matching discovery' },
+          { time: '5 mins ago', event: 'AI verified similarity profiles' },
+          { time: 'Pending', event: 'Awaiting operator confirmation' },
+        ],
+        verificationQuestions: [
+          `Confirm details about: "${incident.title}"`,
+          'Can the reporter describe any unique markings not in the description?',
+        ],
+        actions: [
+          { text: 'Notify Volunteer at Gate Info Desk', status: 'done' },
+          { text: 'Verify owner identity and details', status: 'pending' },
+          { text: 'Return item and document signature', status: 'pending' },
+        ],
+        estimatedResolutionTime: '3 minutes',
+      };
     }
-  };
 
-  const handleBackToForm = () => {
+    setActiveMatchData(matchedData);
+    setShowMatchResult(true);
+  }, [foundItems, incidents, getDefaultImage]);
+
+  const handleBackToForm = useCallback(() => {
     setShowMatchResult(false);
     setSelectedIncidentId(null);
     setActiveMatchData(null);
     setShowUnclaimedResult(false);
     setActiveUnclaimedItem(null);
+  }, []);
+
+  // Status color map
+  const STATUS_COLORS = {
+    Pending:  { text: 'text-rose-400',       bg: 'bg-rose-500/10 border-rose-500/20',     indicator: 'bg-rose-400' },
+    Matching: { text: 'text-amber-400',      bg: 'bg-amber-500/10 border-amber-500/20',   indicator: 'bg-amber-400' },
+    Resolved: { text: 'text-brand-green',    bg: 'bg-brand-emerald/10 border-brand-emerald/20', indicator: 'bg-brand-green' },
   };
 
-  const getDefaultImage = (inc) => {
-    if (!inc) return "/mock_backpack.png";
-    const text = ((inc.title || "") + " " + (inc.description || "")).toLowerCase();
-    const isPerson = text.includes("boy") || text.includes("girl") || text.includes("child") || text.includes("teenager") || text.includes("person") || text.includes("human") || text.includes("man") || text.includes("guy") || inc.type === 'Lost Child' || inc.type === 'Separated Group';
-    const isDoc = text.includes("passport") || text.includes("document") || text.includes("id") || text.includes("card") || text.includes("wallet");
-    
-    if (isPerson) return "/mock_girl.jpg";
-    if (isDoc) return "/mock_passport.png";
-    return "/mock_backpack.png";
-  };
-
-  const getItemInfo = (item) => {
-    const desc = (item.description || "").toLowerCase();
-    const title = (item.title || "").toLowerCase();
-    const isPerson = desc.includes("girl") || desc.includes("boy") || desc.includes("child") || desc.includes("teenager") || desc.includes("person") || desc.includes("maya") || title.includes("girl") || title.includes("boy") || title.includes("child") || title.includes("teenager") || title.includes("person") || title.includes("maya");
-    const isGroup = desc.includes("group") || desc.includes("fans") || desc.includes("people") || desc.includes("friends") || title.includes("group") || title.includes("fans") || title.includes("people") || title.includes("friends");
-
-    if (isPerson) {
-      return { icon: "👤", tag: "👤 Found Person", colorClass: "bg-teal-500/10 text-teal-400 border-teal-500/20" };
-    }
-    if (isGroup) {
-      return { icon: "👥", tag: "👥 Found Group", colorClass: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" };
-    }
-    return { icon: "📦", tag: "📦 Found Item", colorClass: "bg-blue-500/10 text-blue-400 border-blue-500/20" };
-  };
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="mx-auto max-w-7xl w-full px-4 py-6 sm:px-6 lg:px-8 flex-1 flex flex-col gap-6 animate-slide-up">
-      
-      {/* Top Console Stats */}
-      <div className="grid grid-cols-3 gap-3 md:gap-6">
-        <div className="glass-panel border-white/5 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center relative">
-          <div>
-            <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Open Incidents</span>
-            <p className="font-heading text-xl sm:text-3xl font-black text-slate-200 mt-1">{stats.open}</p>
-          </div>
-          <div className="hidden sm:block p-2 rounded-xl bg-slate-800 text-slate-400">
-            <FolderOpen className="h-5 w-5" />
-          </div>
-        </div>
 
-        <div className="glass-panel border-white/5 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center relative">
-          <div>
-            <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Matched Today</span>
-            <p className="font-heading text-xl sm:text-3xl font-black text-brand-green mt-1">{stats.resolved}</p>
+      {/* ── Stats Row ── */}
+      <div className="grid grid-cols-3 gap-3 md:gap-6" role="region" aria-label="Incident statistics">
+        {[
+          { label: 'Open Incidents', value: stats.open,     color: 'text-slate-200',  icon: FolderOpen,    iconColor: 'text-slate-400' },
+          { label: 'Matched Today', value: stats.resolved,  color: 'text-brand-green', icon: CheckCircle2, iconColor: 'text-brand-green' },
+          { label: 'Pending Match', value: stats.matching,  color: 'text-amber-400',  icon: Activity,      iconColor: 'text-amber-400' },
+        ].map(({ label, value, color, icon: Icon, iconColor }) => (
+          <div key={label} className="glass-panel border-white/5 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center"
+            role="status" aria-label={`${label}: ${value}`}>
+            <div>
+              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">{label}</span>
+              <p className={`font-heading text-xl sm:text-3xl font-black ${color} mt-1`}>{value}</p>
+            </div>
+            <div className={`hidden sm:block p-2 rounded-xl bg-white/5 ${iconColor}`}>
+              <Icon className="h-5 w-5" aria-hidden="true" />
+            </div>
           </div>
-          <div className="hidden sm:block p-2 rounded-xl bg-brand-green/10 text-brand-green">
-            <CheckCircle2 className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="glass-panel border-white/5 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center relative">
-          <div>
-            <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Pending Match</span>
-            <p className="font-heading text-xl sm:text-3xl font-black text-amber-400 mt-1">{stats.matching}</p>
-          </div>
-          <div className="hidden sm:block p-2 rounded-xl bg-amber-500/10 text-amber-400">
-            <Activity className="h-5 w-5" />
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Live AI Activity Feed Ticker */}
-      <div className="glass-panel border-white/5 rounded-2xl p-3 flex items-center gap-3 overflow-hidden h-14 relative bg-brand-dark/30">
+      {/* ── Live AI Activity Feed ── */}
+      <div
+        className="glass-panel border-white/5 rounded-2xl p-3 flex items-center gap-3 overflow-hidden h-14 relative bg-brand-dark/30"
+        aria-live="polite"
+        aria-label="Live AI activity feed"
+        aria-atomic="false"
+      >
         <div className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/5 border border-white/5 font-heading text-xs font-black text-brand-green tracking-wide">
-          <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+          <Sparkles className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
           AI ACTIVITY FEED
         </div>
-        <div className="w-[1px] h-6 bg-white/10 flex-shrink-0"></div>
-        
-        {/* Sliding Logs viewport */}
+        <div className="w-[1px] h-6 bg-white/10 flex-shrink-0" />
         <div className="flex-1 overflow-hidden h-full relative" ref={logContainerRef}>
-          <div className="absolute inset-y-0 left-0 right-0 flex flex-col transition-all duration-500" style={{ transform: 'translateY(0px)' }}>
-            {liveLogs.length > 0 ? (
-              <div className="flex items-center gap-3 py-2 text-xs">
-                <span className="text-[10px] text-slate-500 bg-brand-blue border border-white/5 px-1.5 py-0.5 rounded font-mono">
-                  {liveLogs[0].time}
-                </span>
-                <span className={`h-1.5 w-1.5 rounded-full ${
-                  liveLogs[0].type === 'success' ? 'bg-brand-green' : liveLogs[0].type === 'process' ? 'bg-blue-400' : 'bg-slate-400'
-                }`}></span>
-                <span className="text-slate-300 font-medium truncate">
-                  {liveLogs[0].message}
-                </span>
-              </div>
-            ) : (
-              <div className="text-xs text-slate-500 py-2">Waiting for operations...</div>
-            )}
-          </div>
+          {liveLogs.length > 0 ? (
+            <div className="flex items-center gap-3 py-2 text-xs h-full">
+              <span className="text-[10px] text-slate-500 bg-brand-blue border border-white/5 px-1.5 py-0.5 rounded font-mono shrink-0">
+                {liveLogs[0].time}
+              </span>
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                liveLogs[0].type === 'success' ? 'bg-brand-green' : liveLogs[0].type === 'process' ? 'bg-blue-400' : 'bg-slate-400'
+              }`} aria-hidden="true" />
+              <span className="text-slate-300 font-medium truncate">{liveLogs[0].message}</span>
+            </div>
+          ) : (
+            <div className="text-xs text-slate-500 py-2">Waiting for operations...</div>
+          )}
         </div>
-
-        {/* Display secondary logs stack indicator */}
         {liveLogs.length > 1 && (
-          <div className="flex-shrink-0 text-[10px] text-slate-500 pr-2">
+          <div className="flex-shrink-0 text-[10px] text-slate-500 pr-2" aria-label={`${liveLogs.length - 1} additional log entries`}>
             +{liveLogs.length - 1} logs
           </div>
         )}
       </div>
 
-      {/* Bottom Main Workspace (Two columns: List and details) */}
+      {/* ── Main Workspace ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch flex-1">
-        
-        {/* Left Column: Active Incidents List (5 cols) */}
+
+        {/* Left Column: Incident List + Awaiting Items */}
         <div className="lg:col-span-5 flex flex-col gap-4">
+
+          {/* Active Incidents List */}
           <div className="glass-panel border-white/5 rounded-3xl p-4 flex-1 flex flex-col overflow-hidden max-h-[385px]">
-            {/* List Header / Filters */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="font-heading text-sm font-bold text-white tracking-wide">
-                  Active Incidents List
-                </h4>
-                <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                  <Filter className="h-3.5 w-3.5" />
-                  <span>Filter</span>
-                </div>
+                <h2 className="font-heading text-sm font-bold text-white tracking-wide">{t.activeIncidents}</h2>
               </div>
-
               {/* Filter Pills */}
-              <div className="flex flex-wrap gap-1.5 border-b border-white/5 pb-3">
-                {['All', 'Lost Item', 'Lost Child', 'Separated Group'].map((type) => (
+              <div className="flex flex-wrap gap-1.5 border-b border-white/5 pb-3" role="group" aria-label="Filter incidents by type">
+                {['All', 'Lost Item', 'Lost Child', 'Separated Group'].map(type => (
                   <button
                     key={type}
                     onClick={() => setFilterType(type)}
+                    aria-pressed={filterType === type}
                     className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold tracking-wide uppercase transition-all duration-200 cursor-pointer ${
-                      filterType === type 
-                        ? 'bg-brand-green text-brand-dark' 
+                      filterType === type
+                        ? 'bg-brand-green text-brand-dark'
                         : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
                     }`}
                   >
@@ -695,54 +549,41 @@ export default function Console({
               </div>
             </div>
 
-            {/* Scrollable list */}
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1" role="list" aria-label="Incident list">
               {filteredIncidents.length > 0 ? (
-                filteredIncidents.map((incident) => {
+                filteredIncidents.map(incident => {
                   const isSelected = selectedIncidentId === incident.id;
-                  
-                  // Status colors mapping
-                  const statusColors = {
-                    Pending: { text: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20", indicator: "bg-rose-400" },
-                    Matching: { text: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20", indicator: "bg-amber-400" },
-                    Resolved: { text: "text-brand-green", bg: "bg-brand-emerald/10 border-brand-emerald/20", indicator: "bg-brand-green" },
-                  };
-
-                  const colorInfo = statusColors[incident.status] || statusColors.Pending;
-
+                  const colorInfo  = STATUS_COLORS[incident.status] || STATUS_COLORS.Pending;
                   return (
                     <div
                       key={incident.id}
+                      role="listitem"
                       onClick={() => handleIncidentSelect(incident)}
-                      className={`rounded-2xl p-3.5 border text-left cursor-pointer transition-all duration-300 ${
-                        isSelected 
-                          ? 'bg-brand-blue-light/60 border-brand-green/45 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]' 
+                      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleIncidentSelect(incident)}
+                      tabIndex={0}
+                      aria-selected={isSelected}
+                      aria-label={`${incident.type}: ${incident.title}, status ${incident.status}`}
+                      className={`rounded-2xl p-3.5 border text-left cursor-pointer transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-brand-green/50 ${
+                        isSelected
+                          ? 'bg-brand-blue-light/60 border-brand-green/45'
                           : 'bg-brand-blue/30 border-white/5 hover:border-white/15 hover:bg-brand-blue/50'
                       }`}
                     >
                       <div className="flex justify-between items-start mb-2">
-                        {/* Type & status tag */}
                         <div className="flex items-center gap-2">
                           <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md ${colorInfo.bg} ${colorInfo.text} border`}>
                             {incident.type}
                           </span>
                           <span className="text-[10px] text-slate-500 font-mono">#{incident.id}</span>
                         </div>
-                        {/* Time tag */}
                         <span className="text-[10px] text-slate-400">{incident.time}</span>
                       </div>
-
-                      <h5 className="font-heading text-sm font-bold text-white mb-1 leading-snug">
-                        {incident.title}
-                      </h5>
-                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed mb-3">
-                        {incident.description}
-                      </p>
-
+                      <h3 className="font-heading text-sm font-bold text-white mb-1 leading-snug">{incident.title}</h3>
+                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed mb-3">{incident.description}</p>
                       <div className="flex justify-between items-center border-t border-white/5 pt-2 text-[10px] text-slate-500">
                         <span>Area: <strong className="text-slate-300 font-medium">{incident.lastSeen}</strong></span>
                         <div className="flex items-center gap-1.5">
-                          <span className={`h-1.5 w-1.5 rounded-full ${colorInfo.indicator} ${incident.status !== 'Resolved' ? 'animate-pulse' : ''}`}></span>
+                          <span className={`h-1.5 w-1.5 rounded-full ${colorInfo.indicator} ${incident.status !== 'Resolved' ? 'animate-pulse' : ''}`} aria-hidden="true" />
                           <span className="font-bold tracking-wide uppercase">{incident.status}</span>
                         </div>
                       </div>
@@ -750,12 +591,11 @@ export default function Console({
                   );
                 })
               ) : (
-                // Empty state list
-                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center" role="status">
                   <div className="rounded-2xl bg-white/5 border border-white/5 p-4 mb-4 text-slate-400">
-                    <Compass className="h-8 w-8 stroke-[1.2]" />
+                    <Compass className="h-8 w-8 stroke-[1.2]" aria-hidden="true" />
                   </div>
-                  <h5 className="font-heading text-sm font-bold text-white mb-1">No Active Incidents</h5>
+                  <h3 className="font-heading text-sm font-bold text-white mb-1">No Active Incidents</h3>
                   <p className="text-[11px] text-slate-400 max-w-[240px] leading-relaxed">
                     Stadium operations are running smoothly. Report an incident to begin.
                   </p>
@@ -764,322 +604,279 @@ export default function Console({
             </div>
           </div>
 
-          {/* Unclaimed Found Items (Awaiting Owner Reports) */}
+          {/* Awaiting Owner Reports */}
           <div className="glass-panel border-white/5 rounded-3xl p-4 flex-initial flex flex-col overflow-hidden max-h-[250px]">
             <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
-              <h4 className="font-heading text-sm font-bold text-white tracking-wide flex items-center gap-1.5">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-400"></span>
+              <h2 className="font-heading text-sm font-bold text-white tracking-wide flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2" aria-hidden="true">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-400" />
                 </span>
-                Awaiting Owner Reports
-              </h4>
-              <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">
-                {foundItems.filter(item => item.status === "Awaiting Owner Report").length} items
+                {t.unclaimedItems}
+              </h2>
+              <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono"
+                aria-label={`${foundItems.filter(i => i.status === 'Awaiting Owner Report').length} items awaiting owner`}>
+                {foundItems.filter(i => i.status === 'Awaiting Owner Report').length} items
               </span>
             </div>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {foundItems.filter(item => item.status === "Awaiting Owner Report").length > 0 ? (
-                foundItems.filter(item => item.status === "Awaiting Owner Report").map((item) => {
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1" role="list" aria-label="Unclaimed found items">
+              {foundItems.filter(i => i.status === 'Awaiting Owner Report').length > 0 ? (
+                foundItems.filter(i => i.status === 'Awaiting Owner Report').map(item => {
                   const info = getItemInfo(item);
                   return (
-                    <div
-                      key={item.id}
-                      className="bg-brand-blue/30 border border-white/5 rounded-2xl p-3 text-left relative"
-                    >
+                    <div key={item.id} role="listitem" className="bg-brand-blue/30 border border-white/5 rounded-2xl p-3">
                       <div className="flex justify-between items-start mb-1.5">
                         <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md border ${info.colorClass}`}>
                           {info.tag}
                         </span>
                         <span className="text-[9px] text-slate-500 font-mono">#{item.id}</span>
                       </div>
-                      <h5 className="font-heading text-xs font-bold text-white mb-0.5 leading-snug">
-                        {item.title || "Unclaimed Entry"}
-                      </h5>
-                      <p className="text-[10px] text-slate-400 line-clamp-1 mb-2">
-                        {item.description}
-                      </p>
-                      <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-white/5 pt-1.5">
-                        <span>Found: <strong className="text-slate-300 font-medium">{item.foundLocation}</strong></span>
-                        <span className="text-[9px] text-slate-400 font-medium">{item.timeFound}</span>
+                      <h3 className="font-heading text-xs font-bold text-white mb-0.5">{item.title || 'Unclaimed Entry'}</h3>
+                      <p className="text-[10px] text-slate-400 line-clamp-1 mb-2">{item.description}</p>
+                      <div className="flex justify-between text-[9px] text-slate-500 border-t border-white/5 pt-1.5">
+                        <span>Found: <strong className="text-slate-300">{item.foundLocation}</strong></span>
+                        <span>{item.timeFound}</span>
                       </div>
                     </div>
                   );
                 })
               ) : (
-                <div className="text-center py-6 text-[11px] text-slate-500 font-medium leading-relaxed">
-                  No unclaimed found items. All logged items have active owner matches!
+                <div className="text-center py-6 text-[11px] text-slate-500 font-medium" role="status">
+                  No unclaimed items. All logged items have active owner matches!
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Right Column: Dynamic Form / AI Matches View (7 cols) */}
+        {/* Right Column: Form / Simulation / Match Result */}
         <div className="lg:col-span-7 flex flex-col">
-          {isSimulating ? (
-            // Simulation screen
-            <div className="glass-panel border-brand-green/20 rounded-3xl p-6 text-center shadow-2xl flex flex-col items-center justify-center flex-1 min-h-[400px]">
-              <div className="relative mb-6">
-                <Loader2 className="h-16 w-16 text-brand-green animate-spin stroke-[1.5]" />
-                <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-6 w-6 text-brand-emerald" />
-              </div>
-              <h4 className="font-heading text-lg font-bold text-white mb-2">
-                Running Real-Time AI Match
-              </h4>
-              <p className="text-xs text-brand-green font-bold tracking-widest uppercase mb-6">
-                Analyzing Incident Databases
-              </p>
 
-              {/* Step checklist */}
+          {/* Simulation loading screen */}
+          {isSimulating ? (
+            <div
+              className="glass-panel border-brand-green/20 rounded-3xl p-6 text-center shadow-2xl flex flex-col items-center justify-center flex-1 min-h-[400px]"
+              role="status"
+              aria-busy="true"
+              aria-label="AI matching in progress"
+              aria-live="polite"
+            >
+              <div className="relative mb-6">
+                <Loader2 className="h-16 w-16 text-brand-green animate-spin stroke-[1.5]" aria-hidden="true" />
+                <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-6 w-6 text-brand-emerald" aria-hidden="true" />
+              </div>
+              <h3 className="font-heading text-lg font-bold text-white mb-2">Running Real-Time AI Match</h3>
+              <p className="text-xs text-brand-green font-bold tracking-widest uppercase mb-6">
+                {import.meta.env.VITE_ATOMESUS_API_KEY ? 'Querying Atomesus AI...' : 'Analyzing Incident Databases'}
+              </p>
               <div className="w-full max-w-xs text-left text-xs bg-brand-dark/50 rounded-2xl p-4 border border-white/5 space-y-3 font-mono">
                 {[
-                  "Analyzing image upload & metadata...",
-                  "Extracting semantic attributes & visual tags...",
-                  "Cross-referencing with active missing reports...",
-                  "Calculating overall matching vector scores...",
-                  "AI Recommendations Generated."
+                  'Analyzing image upload & metadata...',
+                  'Extracting semantic attributes & visual tags...',
+                  'Cross-referencing active missing reports...',
+                  'Calculating vector similarity scores...',
+                  'Generating AI reasoning...',
                 ].map((stepText, idx) => {
-                  const stepNum = idx + 1;
-                  const isDone = simStep > stepNum;
-                  const isActive = simStep === stepNum;
-                  const isPending = simStep < stepNum;
-
+                  const isDone = simStep > idx + 1;
+                  const isActive = simStep === idx + 1;
                   return (
                     <div key={idx} className="flex items-center justify-between">
-                      <span className={`${isDone ? 'text-brand-green' : isActive ? 'text-white font-bold' : 'text-slate-500'}`}>
-                        {stepNum}. {stepText}
+                      <span className={isDone ? 'text-brand-green' : isActive ? 'text-white font-bold' : 'text-slate-500'}>
+                        {idx + 1}. {stepText}
                       </span>
-                      {isDone ? (
-                        <Check className="h-4 w-4 text-brand-green" />
-                      ) : isActive ? (
-                        <Loader2 className="h-4 w-4 text-brand-green animate-spin" />
-                      ) : (
-                        <span className="h-2 w-2 rounded-full bg-slate-700"></span>
-                      )}
+                      {isDone   ? <Check className="h-4 w-4 text-brand-green" aria-hidden="true" /> :
+                       isActive ? <Loader2 className="h-4 w-4 text-brand-green animate-spin" aria-hidden="true" /> :
+                                  <span className="h-2 w-2 rounded-full bg-slate-700" aria-hidden="true" />}
                     </div>
                   );
                 })}
               </div>
             </div>
+
           ) : showUnclaimedResult && activeUnclaimedItem ? (
-            // Awaiting Owner Result View
-            <div className="glass-panel border-blue-500/20 rounded-3xl p-6 sm:p-8 flex flex-col justify-between flex-1 shadow-lg relative animate-slide-up bg-gradient-to-b from-brand-blue/45 to-brand-dark">
-              <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
-              <div className="flex-grow">
+            /* Awaiting Owner Result */
+            <div className="glass-panel border-blue-500/20 rounded-3xl p-6 sm:p-8 flex flex-col justify-between flex-1 shadow-lg relative animate-slide-up bg-gradient-to-b from-brand-blue/45 to-brand-dark"
+              role="region" aria-label="Unclaimed item logged result">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
+              <div>
                 <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-5">
                   <div>
                     <span className="text-[10px] uppercase font-bold tracking-widest text-blue-400 bg-blue-500/10 px-2.5 py-1.5 rounded-lg border border-blue-500/20">
                       Unclaimed Entry Logged
                     </span>
-                    <h3 className="font-heading text-lg font-bold text-white mt-2">
-                      No Immediate Match Found
-                    </h3>
+                    <h3 className="font-heading text-lg font-bold text-white mt-2">No Immediate Match Found</h3>
                   </div>
-                  <button
-                    onClick={handleBackToForm}
-                    className="text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/5 cursor-pointer"
-                  >
+                  <button onClick={handleBackToForm} aria-label="Close result" className="text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/5 cursor-pointer">
                     Close Result
                   </button>
                 </div>
-
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 mb-6">
                   <p className="text-xs sm:text-sm text-blue-300 leading-relaxed font-medium">
                     💡 "No matching incident exists yet. This item has been securely recorded and will be automatically matched if a future report is submitted."
                   </p>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                   <div className="flex flex-col p-3 rounded-2xl bg-brand-dark/40 border border-white/5">
                     <span className="text-[10px] uppercase font-bold text-slate-500 mb-2">Item Attributes</span>
                     <div className="text-xs text-slate-300 space-y-2">
-                      <div>Name/Type: <strong className="text-white">{activeUnclaimedItem.title}</strong></div>
+                      <div>Name: <strong className="text-white">{activeUnclaimedItem.title}</strong></div>
                       <div>Details: <span className="text-slate-400 line-clamp-2">{activeUnclaimedItem.description}</span></div>
                     </div>
                   </div>
-
                   <div className="flex flex-col p-3 rounded-2xl bg-brand-dark/40 border border-white/5">
                     <span className="text-[10px] uppercase font-bold text-slate-500 mb-2">Location & Time</span>
                     <div className="text-xs text-slate-300 space-y-2">
-                      <div>Location Found: <strong className="text-white">{activeUnclaimedItem.foundLocation}</strong></div>
-                      <div>Time Indexed: <span className="text-slate-400">{activeUnclaimedItem.timeFound}</span></div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Simulated AI Timeline */}
-                <div className="glass-panel bg-brand-dark/35 border border-white/5 rounded-2xl p-4">
-                  <h4 className="font-heading text-xs font-bold tracking-wider text-slate-300 mb-3 flex items-center gap-2 uppercase">
-                    <Clock className="h-4 w-4 text-blue-400" />
-                    AI Lifecycle Timeline
-                  </h4>
-                  <div className="relative pl-4 border-l border-white/10 space-y-3.5 text-xs text-slate-400">
-                    <div className="relative">
-                      <span className="absolute -left-[21.5px] top-1 h-2.5 w-2.5 rounded-full border-2 bg-brand-emerald border-brand-emerald"></span>
-                      <div className="flex justify-between items-start">
-                        <span className="font-semibold text-slate-300">Item Discovered & Logged</span>
-                        <span className="text-[10px] text-slate-500 font-mono">Just now</span>
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <span className="absolute -left-[21.5px] top-1 h-2.5 w-2.5 rounded-full border-2 bg-brand-emerald border-brand-emerald"></span>
-                      <div className="flex justify-between items-start">
-                        <span className="font-semibold text-slate-300">No owner report exists</span>
-                        <span className="text-[10px] text-slate-500 font-mono">Just now</span>
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <span className="absolute -left-[21.5px] top-1 h-2.5 w-2.5 rounded-full border-2 bg-blue-500 border-blue-500 animate-pulse"></span>
-                      <div className="flex justify-between items-start">
-                        <span className="font-semibold text-blue-400">Stored for future matching</span>
-                        <span className="text-[10px] text-slate-500 font-mono">Awaiting Report</span>
-                      </div>
+                      <div>Found: <strong className="text-white">{activeUnclaimedItem.foundLocation}</strong></div>
+                      <div>Indexed: <span className="text-slate-400">{activeUnclaimedItem.timeFound}</span></div>
                     </div>
                   </div>
                 </div>
               </div>
-
-              <button
-                onClick={handleBackToForm}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-brand-blue-light/50 border border-white/5 hover:border-blue-400/30 px-5 py-3 text-xs sm:text-sm font-bold text-white transition-all cursor-pointer mt-6"
-              >
+              <button onClick={handleBackToForm} aria-label="Log another discovered item"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-brand-blue-light/50 border border-white/5 hover:border-blue-400/30 px-5 py-3 text-xs sm:text-sm font-bold text-white transition-all cursor-pointer mt-6">
                 Log Another Discovered Item
               </button>
             </div>
+
           ) : showMatchResult && selectedIncidentId ? (
-            // Explainable AI result
             <MatchDetails
               incident={incidents.find(i => i.id === selectedIncidentId)}
               matchData={activeMatchData}
               onResolve={handleResolveIncident}
               onBack={handleBackToForm}
             />
+
           ) : (
-            // Found Item Form
+            /* Log Found Item Form */
             <div className="glass-panel border-white/5 rounded-3xl p-6 sm:p-8 flex flex-col flex-1 shadow-lg">
               <div className="mb-6">
-                <h4 className="font-heading text-lg font-bold text-white">Log Found Item</h4>
+                <h2 className="font-heading text-lg font-bold text-white">{t.logFound}</h2>
                 <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                  Upload visual data or descriptions of items retrieved by stadium hostesses or stewards.
+                  {t.logFoundDesc}
                 </p>
               </div>
 
-              {/* One-Click Demo Shortcuts */}
+              {/* Demo Shortcuts */}
               <div className="bg-brand-blue-light/25 border border-white/5 rounded-2xl p-3.5 mb-5 flex flex-col gap-2 bg-gradient-to-br from-brand-blue-light/30 to-brand-blue/10">
                 <span className="text-[10px] uppercase font-black text-brand-green tracking-wider flex items-center gap-1.5 font-heading">
-                  <Sparkles className="h-3.5 w-3.5 text-brand-green" />
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                   One-Click Demo Shortcuts (For Hackathon Judges)
                 </span>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFoundDesc("Black Nike backpack found near security gate. Contains a notebook and a laptop with red keychain.");
-                      setFoundLoc("Section 104, Gate B");
-                      setFoundPreview("/mock_backpack.png");
-                      setFoundFile(new File([], "mock_backpack.png"));
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/5 hover:border-brand-green/30 hover:bg-white/10 text-xs text-slate-300 font-medium transition-all flex items-center gap-1.5 cursor-pointer"
-                  >
-                    🎒 Pre-fill Nike Backpack
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFoundDesc("Dark brown leather wallet holding a German passport.");
-                      setFoundLoc("VIP Reception Desk");
-                      setFoundPreview("/mock_passport.png");
-                      setFoundFile(new File([], "mock_passport.png"));
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/5 hover:border-brand-green/30 hover:bg-white/10 text-xs text-slate-300 font-medium transition-all flex items-center gap-1.5 cursor-pointer"
-                  >
-                    📖 Pre-fill German Passport
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFoundDesc("Found teenage girl matching lost child Maya. Long dark wavy hair, grey t-shirt with pink trim. Located near Gate A.");
-                      setFoundLoc("Gate A Info Desk");
-                      setFoundPreview("/mock_girl.jpg");
-                      setFoundFile(new File([], "mock_girl.jpg"));
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/5 hover:border-brand-green/30 hover:bg-white/10 text-xs text-slate-300 font-medium transition-all flex items-center gap-1.5 cursor-pointer"
-                  >
-                    👧 Pre-fill Lost Child (Maya)
-                  </button>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Demo scenario shortcuts">
+                  {[
+                    { label: '🎒 Pre-fill Nike Backpack', desc: 'Black Nike backpack found near security gate. Contains a notebook and a laptop with red keychain.', loc: 'Section 104, Gate B', preview: '/mock_backpack.png' },
+                    { label: '📖 Pre-fill German Passport', desc: 'Dark brown leather wallet holding a German passport.', loc: 'VIP Reception Desk', preview: '/mock_passport.png' },
+                    { label: '👧 Pre-fill Lost Child (Maya)', desc: 'Found teenage girl matching lost child Maya. Long dark wavy hair, grey t-shirt with pink trim. Located near Gate A.', loc: 'Gate A Info Desk', preview: '/mock_girl.jpg' },
+                  ].map(({ label, desc, loc, preview }) => (
+                    <button key={label} type="button"
+                      onClick={() => { setFoundDesc(desc); setFoundLoc(loc); setFoundPreview(preview); setFoundFile(new File([], preview.split('/').pop())); setDescError(''); }}
+                      aria-label={`Pre-fill form: ${label}`}
+                      className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/5 hover:border-brand-green/30 hover:bg-white/10 text-xs text-slate-300 font-medium transition-all cursor-pointer">
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <form onSubmit={handleFoundSubmit} className="space-y-5 flex-1 flex flex-col justify-between">
+              <form onSubmit={handleFoundSubmit} className="space-y-5 flex-1 flex flex-col justify-between" noValidate>
                 <div className="space-y-4">
-                  {/* Found Item Image Upload */}
+
+                  {/* Image Upload */}
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2" htmlFor="found-image-upload">
                       Upload Found Item Image
                     </label>
                     <div className="relative flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 p-5 bg-brand-dark/25 hover:border-white/20 transition-all">
                       {foundPreview ? (
                         <div className="flex flex-col items-center gap-3 w-full">
-                          <img src={foundPreview} alt="Found Item" className="h-24 rounded-lg object-cover shadow-lg border border-white/10" />
-                          <button
-                            type="button"
-                            onClick={() => { setFoundFile(null); setFoundPreview(null); }}
-                            className="text-xs font-semibold text-rose-400 hover:text-rose-300 underline"
-                          >
+                          <img src={foundPreview} alt="Found item preview" className="h-24 rounded-lg object-cover shadow-lg border border-white/10" />
+                          <button type="button" aria-label="Remove uploaded image"
+                            onClick={() => { setFoundFile(null); setFoundPreview(null); setFileError(''); }}
+                            className="text-xs font-semibold text-rose-400 hover:text-rose-300 underline cursor-pointer">
                             Remove image
                           </button>
                         </div>
                       ) : (
                         <>
-                          <Upload className="h-7 w-7 text-slate-400 mb-2 stroke-[1.5]" />
-                          <span className="text-xs text-slate-300 font-semibold mb-0.5">
-                            Upload image of discovered item
-                          </span>
-                          <span className="text-[10px] text-slate-500">Volunteers will use standard phone cameras</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleImageChange}
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                          />
+                          <Upload className="h-7 w-7 text-slate-400 mb-2 stroke-[1.5]" aria-hidden="true" />
+                          <span className="text-xs text-slate-300 font-semibold mb-0.5">Upload image of discovered item</span>
+                          <span className="text-[10px] text-slate-500">JPEG, PNG, WebP — max 5 MB</span>
+                          <input id="found-image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+                            onChange={handleImageChange} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            aria-describedby={fileError ? 'file-error' : undefined} />
                         </>
                       )}
                     </div>
+                    {fileError && (
+                      <p id="file-error" role="alert" className="text-[10px] text-rose-400 mt-1.5 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" aria-hidden="true" /> {fileError}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Found Item Description */}
+                  {/* Description */}
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                      Item Description
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2" htmlFor="found-desc">
+                      {t.itemDesc} <span aria-hidden="true">*</span>
                     </label>
                     <textarea
+                      id="found-desc"
                       required
-                      rows="3"
+                      aria-required="true"
+                      aria-describedby={descError ? 'desc-error' : 'desc-hint'}
+                      aria-invalid={!!descError}
+                      rows={3}
                       value={foundDesc}
-                      onChange={(e) => setFoundDesc(e.target.value)}
-                      placeholder="e.g. Black backpack found near Section 23 with laptops inside, or German passport holder under name Klaus"
-                      className="w-full rounded-xl bg-brand-dark/60 border border-white/10 px-4 py-3 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:border-brand-green/50 focus:outline-none transition-all resize-none"
-                    ></textarea>
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      💡 Tip: Try writing <span className="text-slate-300 italic font-medium">"black backpack nike"</span> or <span className="text-slate-300 italic font-medium">"german passport"</span> to simulate active matches!
-                    </p>
+                      onChange={handleDescChange}
+                      maxLength={MAX_DESCRIPTION_LENGTH}
+                      placeholder="e.g. Black Nike backpack near Section 23 with laptop inside, or German passport holder"
+                      className={`w-full rounded-xl bg-brand-dark/60 border px-4 py-3 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none transition-all resize-none ${
+                        descError ? 'border-rose-500/50 focus:border-rose-500' : 'border-white/10 focus:border-brand-green/50'
+                      }`}
+                    />
+
+                    {/* Live language detection badge */}
+                    {detectedLang ? (
+                      <div className="mt-2 rounded-xl border border-indigo-500/25 bg-indigo-500/8 p-3 flex items-start gap-2.5 animate-slide-up"
+                        role="status" aria-live="polite" aria-label={`${detectedLang.label} detected, auto-translating to English`}>
+                        <Languages className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" aria-hidden="true" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-base leading-none" aria-hidden="true">{detectedLang.flag}</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">{detectedLang.label} Detected</span>
+                            <span className="text-[9px] text-slate-500 font-mono ml-auto">Auto-translating →</span>
+                          </div>
+                          <p className="text-[11px] text-brand-green font-medium leading-snug truncate">"{detectedLang.translated}"</p>
+                          <p className="text-[9px] text-slate-500 mt-0.5">AI will match using this English translation.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-center mt-1">
+                        <p id="desc-hint" className="text-[10px] text-slate-500">
+                          💡 Try: <span className="text-slate-300 italic">"mochila negra"</span> (ES) or <span className="text-slate-300 italic">"sac à dos noir"</span> (FR) for live translation
+                        </p>
+                        <span className="text-[10px] text-slate-600 font-mono">{foundDesc.length}/{MAX_DESCRIPTION_LENGTH}</span>
+                      </div>
+                    )}
+                    {descError && (
+                      <p id="desc-error" role="alert" className="text-[10px] text-rose-400 mt-1 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" aria-hidden="true" /> {descError}
+                      </p>
+                    )}
                   </div>
 
                   {/* Found Location */}
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                      Found Location
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2" htmlFor="found-loc">
+                      {t.foundLoc}
                     </label>
                     <div className="relative">
-                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                        <MapPin className="h-4 w-4" />
-                      </span>
+                      <MapPin className="absolute inset-y-0 left-3 h-4 w-4 text-slate-400 my-auto" aria-hidden="true" />
                       <input
+                        id="found-loc"
                         type="text"
                         value={foundLoc}
-                        onChange={(e) => setFoundLoc(e.target.value)}
+                        onChange={e => setFoundLoc(e.target.value)}
                         placeholder="e.g. Food Plaza Seat F12, or Gate B Info Booth"
                         className="w-full rounded-xl bg-brand-dark/60 border border-white/10 pl-9 pr-4 py-3 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:border-brand-green/50 focus:outline-none transition-all"
                       />
@@ -1087,19 +884,31 @@ export default function Console({
                   </div>
                 </div>
 
-                {/* Submit button */}
-                <button
-                  type="submit"
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-emerald to-brand-green py-3 text-sm font-bold text-brand-dark shadow-[0_4px_12px_rgba(0,230,118,0.25)] hover:brightness-110 active:scale-98 transition-all cursor-pointer mt-4"
-                >
-                  <Sparkles className="h-4 w-4 fill-brand-dark stroke-brand-dark" />
-                  <span>Start AI Match Search</span>
+                {/* AI Source indicator */}
+                {aiSource && (
+                  <div className={`flex items-center gap-2 text-[10px] font-medium px-3 py-2 rounded-lg border ${
+                    aiSource === 'ai' || aiSource === 'cached'
+                      ? 'text-indigo-300 bg-indigo-500/10 border-indigo-500/20'
+                      : 'text-slate-400 bg-white/5 border-white/10'
+                  }`} role="status">
+                    {aiSource === 'ai' || aiSource === 'cached'
+                      ? <><Cpu className="h-3 w-3" aria-hidden="true" /> AI-Generated reasoning via Atomesus</>
+                      : <><WifiOff className="h-3 w-3" aria-hidden="true" /> Local inference engine (add API key for AI)</>
+                    }
+                  </div>
+                )}
+
+                {/* Submit */}
+                <button type="submit" disabled={isSimulating}
+                  aria-label="Start AI match search for found item"
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-emerald to-brand-green py-3 text-sm font-bold text-brand-dark shadow-[0_4px_12px_rgba(0,230,118,0.25)] hover:brightness-110 active:scale-98 transition-all cursor-pointer mt-4 disabled:opacity-60 disabled:cursor-not-allowed">
+                  <Sparkles className="h-4 w-4 fill-brand-dark stroke-brand-dark" aria-hidden="true" />
+                  <span>{t.startSearch}</span>
                 </button>
               </form>
             </div>
           )}
         </div>
-
       </div>
     </div>
   );

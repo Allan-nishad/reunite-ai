@@ -8,5 +8,15 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    proxy: {
+      '/v1': {
+        target: 'https://api.atomesus.com',
+        changeOrigin: true,
+        secure: true
+      }
+    }
+  }
 })
+
 

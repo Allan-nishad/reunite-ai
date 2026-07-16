@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Upload, MapPin, Clock, ArrowRight, ShieldCheck, ChevronDown, Zap } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Upload, MapPin, Clock, ArrowRight, ShieldCheck, ChevronDown, Zap, AlertTriangle } from 'lucide-react';
+import { sanitizeText, validateFile, validateDescription, MAX_DESCRIPTION_LENGTH } from '../utils/security';
 
 const DEMO_SCENARIOS = [
   {
@@ -55,7 +56,11 @@ const DEMO_SCENARIOS = [
   }
 ];
 
-export default function ReportForm({ onAddIncident, setActiveTab }) {
+import { locales } from '../utils/uiTranslations';
+
+export default function ReportForm({ onAddIncident, setActiveTab, lang }) {
+  const t = locales[lang] || locales.en;
+
   const [formData, setFormData] = useState({
     type: 'Lost Item',
     title: '',
@@ -67,24 +72,28 @@ export default function ReportForm({ onAddIncident, setActiveTab }) {
   });
 
   const [submittedIncident, setSubmittedIncident] = useState(null);
-  const [dragActive, setDragActive] = useState(false);
-  const [imagePreview, setImagePreview] = useState(null);
-  const [activeDemo, setActiveDemo] = useState(null);
+  const [dragActive, setDragActive]               = useState(false);
+  const [imagePreview, setImagePreview]           = useState(null);
+  const [activeDemo, setActiveDemo]               = useState(null);
+  const [fileError, setFileError]                 = useState('');
+  const [descError, setDescError]                 = useState('');
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setFormData((prev) => ({ ...prev, image: file }));
-      const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result);
-      reader.readAsDataURL(file);
-    }
-  };
+  const handleImageChange = useCallback((e) => {
+    const file = e.target.files?.[0] || (e.dataTransfer && e.dataTransfer.files?.[0]);
+    if (!file) return;
+    const validation = validateFile(file);
+    if (!validation.valid) { setFileError(validation.error); return; }
+    setFileError('');
+    setFormData(prev => ({ ...prev, image: file }));
+    const reader = new FileReader();
+    reader.onloadend = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
+  }, []);
 
   const handleDemoClick = (scenario) => {
     setActiveDemo(scenario.id);
@@ -115,20 +124,23 @@ export default function ReportForm({ onAddIncident, setActiveTab }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.title || !formData.description) return;
+    const descVal = validateDescription(formData.description);
+    if (!formData.title || formData.title.trim().length < 3) return;
+    if (!descVal.valid) { setDescError(descVal.error); return; }
+    setDescError('');
     const newId = `INC-${Math.floor(100 + Math.random() * 900)}`;
     const newIncident = {
-      id: newId,
-      type: formData.type,
-      title: formData.title,
-      description: formData.description,
-      lastSeen: formData.lastSeen || 'Not specified',
-      time: formData.time || 'Just now',
-      reportedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      status: formData.type === 'Lost Item' ? 'Matching' : 'Pending',
-      imageUrl: imagePreview,
-      priority: formData.type === 'Lost Child' ? 'High' : 'Medium',
-      reporterName: formData.reporterName || 'Stadium Fan',
+      id:           newId,
+      type:         formData.type,
+      title:        sanitizeText(formData.title),
+      description:  sanitizeText(formData.description),
+      lastSeen:     sanitizeText(formData.lastSeen) || 'Not specified',
+      time:         formData.time || 'Just now',
+      reportedAt:   new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status:       formData.type === 'Lost Item' ? 'Matching' : 'Pending',
+      imageUrl:     imagePreview,
+      priority:     formData.type === 'Lost Child' ? 'High' : 'Medium',
+      reporterName: sanitizeText(formData.reporterName) || 'Stadium Fan',
     };
     onAddIncident(newIncident);
     setSubmittedIncident(newIncident);
@@ -139,13 +151,15 @@ export default function ReportForm({ onAddIncident, setActiveTab }) {
     setImagePreview(null);
     setSubmittedIncident(null);
     setActiveDemo(null);
+    setFileError('');
+    setDescError('');
   };
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 animate-slide-up flex-1 flex flex-col justify-center">
       {submittedIncident ? (
         /* ── Success Card ── */
-        <div className="glass-panel border-brand-green/30 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden">
+        <div role="alert" aria-live="assertive" className="glass-panel border-brand-green/30 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-brand-emerald to-brand-green" />
           <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-green/10 text-brand-green glow-green">
             <ShieldCheck className="h-8 w-8 stroke-[2]" />
@@ -307,16 +321,30 @@ export default function ReportForm({ onAddIncident, setActiveTab }) {
 
               {/* Description */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Detailed Description</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2" htmlFor="report-description">Detailed Description <span aria-hidden="true">*</span></label>
                 <textarea
+                  id="report-description"
                   name="description"
                   required
+                  aria-required="true"
+                  aria-describedby={descError ? 'desc-error-report' : 'desc-hint-report'}
+                  aria-invalid={!!descError}
                   rows="3"
                   value={formData.description}
-                  onChange={handleChange}
+                  onChange={(e) => { handleChange(e); setDescError(''); }}
+                  maxLength={MAX_DESCRIPTION_LENGTH}
                   placeholder="Provide physical features, brand markings, color, size, wearing clothing, contents, language spoken, etc."
-                  className="w-full rounded-xl bg-brand-dark/60 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-brand-green/50 focus:outline-none transition-all resize-none"
+                  className={`w-full rounded-xl bg-brand-dark/60 border px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none transition-all resize-none ${descError ? 'border-rose-500/50' : 'border-white/10 focus:border-brand-green/50'}`}
                 />
+                <div className="flex justify-between items-center mt-1">
+                  <span id="desc-hint-report" className="text-[10px] text-slate-500">Provide as much detail as possible to improve AI matching accuracy.</span>
+                  <span className="text-[10px] text-slate-600 font-mono">{formData.description.length}/{MAX_DESCRIPTION_LENGTH}</span>
+                </div>
+                {descError && (
+                  <p id="desc-error-report" role="alert" className="text-[10px] text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" aria-hidden="true" /> {descError}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -370,22 +398,30 @@ export default function ReportForm({ onAddIncident, setActiveTab }) {
                 >
                   {imagePreview ? (
                     <div className="flex flex-col items-center gap-3 w-full">
-                      <img src={imagePreview} alt="Preview" className="h-28 rounded-lg object-cover shadow-lg border border-white/10" />
-                      <button type="button" onClick={() => setImagePreview(null)} className="text-xs font-semibold text-rose-400 hover:text-rose-300 underline">
+                      <img src={imagePreview} alt="Incident image preview" className="h-28 rounded-lg object-cover shadow-lg border border-white/10" />
+                      <button type="button" aria-label="Remove uploaded image" onClick={() => { setImagePreview(null); setFileError(''); }} className="text-xs font-semibold text-rose-400 hover:text-rose-300 underline">
                         Remove image
                       </button>
                     </div>
                   ) : (
                     <>
-                      <Upload className="h-8 w-8 text-slate-400 mb-2 stroke-[1.5]" />
+                      <Upload className="h-8 w-8 text-slate-400 mb-2 stroke-[1.5]" aria-hidden="true" />
                       <span className="text-xs text-slate-300 font-semibold mb-1">
-                        Drag &amp; drop image or <span className="text-brand-green underline cursor-pointer">browse</span>
+                        Drag &amp; drop or <span className="text-brand-green underline cursor-pointer">browse</span>
                       </span>
-                      <span className="text-[10px] text-slate-500">Supports JPG, PNG (Max 5MB)</span>
-                      <input type="file" accept="image/*" onChange={handleImageChange} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                      <span className="text-[10px] text-slate-500">JPEG, PNG, WebP — max 5 MB</span>
+                      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+                        onChange={handleImageChange}
+                        aria-label="Upload incident image"
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                     </>
                   )}
                 </div>
+                {fileError && (
+                  <p role="alert" className="text-[10px] text-rose-400 mt-1.5 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" aria-hidden="true" /> {fileError}
+                  </p>
+                )}
               </div>
 
               {/* Submit */}

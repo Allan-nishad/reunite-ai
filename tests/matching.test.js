@@ -1,86 +1,90 @@
 import { describe, it, expect } from 'vitest';
+import { getCategory } from '../src/utils/classifier.js';
+import { translateInput } from '../src/utils/translator.js';
 
-// Emulated matching logic from App.jsx
-const getCategory = (text, incType) => {
-  const t = text.toLowerCase();
-  if (/\b(boy|girl|man|woman|child|person|human|teenager|kid|maya|son|daughter|guy|lady|fan|people|group)\b/.test(t)) return 'person';
-  if (/\b(backpack|bag|pack|rucksack|suitcase|briefcase|jacket|coat|puffer)\b/.test(t)) return 'bag';
-  if (/\b(passport|wallet|document|id card|pass|licence|license|certificate)\b/.test(t)) return 'document';
-  if (incType === 'Lost Child' || incType === 'Separated Group') return 'person';
-  return null;
-};
-
+// Matching logic using shared utilities (mirrors App.jsx / Console.jsx)
 const checkMatch = (incident, foundItem) => {
-  const incText = (incident.title + ' ' + incident.description).toLowerCase();
-  const incConcept = getCategory(incText, incident.type);
+  const incText     = (incident.title + ' ' + incident.description).toLowerCase();
+  const { text: translatedIncText }   = translateInput(incText);
+  const incConcept  = getCategory(translatedIncText, incident.type);
 
-  const itemText = ((foundItem.title || '') + ' ' + foundItem.description).toLowerCase();
-  const itemConcept = getCategory(itemText, foundItem.type);
+  const itemText    = ((foundItem.title || '') + ' ' + foundItem.description).toLowerCase();
+  const { text: translatedItemText }  = translateInput(itemText);
+  const itemConcept = getCategory(translatedItemText, foundItem.type);
 
   if (incConcept && itemConcept && incConcept === itemConcept) {
-    // Generate simulated match details
-    let confidence = 91; // default fallback confidence
-    if (incText.includes('backpack') && itemText.includes('backpack')) confidence = 94;
-    if (incText.includes('maya') || incText.includes('girl')) confidence = 96;
+    let confidence = 91;
+    if (translatedIncText.includes('backpack') && translatedItemText.includes('backpack')) confidence = 94;
+    if (translatedIncText.includes('maya') || translatedIncText.includes('girl'))           confidence = 96;
 
     return {
       match: true,
       confidence,
       reasoning: [
         `Category match: ${incConcept}`,
-        'Semantic description similarity aligned'
-      ]
+        'Semantic description similarity aligned',
+      ],
     };
   }
   return { match: false };
 };
 
 describe('AI Matching Logic Tests', () => {
-  it('matches similar descriptions in the same category', () => {
-    const incident = {
-      type: 'Lost Item',
-      title: 'Black Nike Backpack',
-      description: 'Contains notebook and laptop'
-    };
-    const foundItem = {
-      title: 'Black Backpack',
-      description: 'Black backpack containing laptop found near gate'
-    };
 
-    const result = checkMatch(incident, foundItem);
+  it('matches similar bag descriptions in the same category', () => {
+    const incident  = { type: 'Lost Item',  title: 'Black Nike Backpack', description: 'Contains notebook and laptop' };
+    const foundItem = { title: 'Black Backpack', description: 'Black backpack containing laptop found near gate' };
+    const result    = checkMatch(incident, foundItem);
     expect(result.match).toBe(true);
     expect(result.confidence).toBe(94);
   });
 
-  it('blocks cross-category matches (e.g., wallet and boy)', () => {
-    const incident = {
-      type: 'Lost Child',
-      title: 'Missing Boy',
-      description: '10 year old boy wearing green shirt'
-    };
-    const foundItem = {
-      title: 'Leather Wallet',
-      description: 'Found black leather wallet containing credit card'
-    };
-
-    const result = checkMatch(incident, foundItem);
+  it('blocks cross-category matches (bag vs person)', () => {
+    const incident  = { type: 'Lost Child', title: 'Missing Boy', description: '10 year old boy wearing green shirt' };
+    const foundItem = { title: 'Leather Wallet', description: 'Found black leather wallet containing credit card' };
+    const result    = checkMatch(incident, foundItem);
     expect(result.match).toBe(false);
   });
 
-  it('correctly reports confidence and explanations', () => {
-    const incident = {
-      type: 'Lost Child',
-      title: 'Maya Lost',
-      description: '15-year old teenage girl with dark hair'
-    };
-    const foundItem = {
-      title: 'Found Teenager',
-      description: 'Spotted young teenage girl matching Maya near Gate A'
-    };
+  it('blocks cross-category matches (document vs bag)', () => {
+    const incident  = { type: 'Lost Item', title: 'German Passport', description: 'Blue passport wallet' };
+    const foundItem = { title: 'Blue Jacket',  description: 'Blue Adidas jacket found at seat' };
+    const result    = checkMatch(incident, foundItem);
+    expect(result.match).toBe(false);
+  });
 
-    const result = checkMatch(incident, foundItem);
+  it('matches lost child with found teenager', () => {
+    const incident  = { type: 'Lost Child', title: 'Maya Lost', description: '15-year old teenage girl with dark hair' };
+    const foundItem = { title: 'Found Teenager', description: 'Spotted young teenage girl matching Maya near Gate A' };
+    const result    = checkMatch(incident, foundItem);
     expect(result.match).toBe(true);
     expect(result.confidence).toBe(96);
     expect(result.reasoning).toContain('Category match: person');
   });
+
+  it('matches documents in same category', () => {
+    const incident  = { type: 'Lost Item', title: 'German Passport', description: 'Dark brown passport wallet' };
+    const foundItem = { title: 'Passport', description: 'Brown passport holder found at VIP lounge' };
+    const result    = checkMatch(incident, foundItem);
+    expect(result.match).toBe(true);
+  });
+
+  it('correctly reports confidence and reasoning', () => {
+    const incident  = { type: 'Lost Item', title: 'Black Backpack', description: 'Nike backpack with red keychain' };
+    const foundItem = { title: 'Found Backpack', description: 'Black Nike backpack with keychain found' };
+    const result    = checkMatch(incident, foundItem);
+    expect(typeof result.confidence).toBe('number');
+    expect(result.confidence).toBeGreaterThan(0);
+    expect(Array.isArray(result.reasoning)).toBe(true);
+    expect(result.reasoning.length).toBeGreaterThan(0);
+  });
+
+  it('matches Spanish input via translation before category check', () => {
+    const incident  = { type: 'Lost Item', title: 'Mochila Negra', description: 'mochila negra con portátil' };
+    const foundItem = { title: 'Black Backpack', description: 'black backpack found near gate B' };
+    const result    = checkMatch(incident, foundItem);
+    // mochila → backpack → category 'bag' on both sides
+    expect(result.match).toBe(true);
+  });
+
 });
